@@ -1,0 +1,12 @@
+name: comic_cover_generator
+channels:
+  - pytorch
+  - defaults
+dependencies:
+  - python=3.7
+  - pytorch::pytorch
+  - pytorch::torchvision
+  - pytorch::cpuonly
+  - pip
+  - pip:
+      - -e . [dev]
