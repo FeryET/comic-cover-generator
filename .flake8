@@ -11,6 +11,7 @@ ignore =
     E501 # "Line lengths are recommended to be no greater than 79 characters"
     E203 # "Whitespace before ':'": conflicts with black
     W503 # "line break before binary operator": conflicts with black
+
 exclude =
     .git
     .vscode
@@ -20,5 +21,7 @@ exclude =
     .venv
     .env
     .direnv
+    tests
+
 per-file-ignores =
     __init__.py:F401,D104

@@ -4,7 +4,7 @@
 ## test-section
 
 test:
-	py.test tests/  -q --no-summary --no-header --tb=line
+	PYTHONPATH=. py.test tests/  -q --no-summary --no-header --tb=line
 
 test_full_err:
-	py.test tests/ --tb=long
+	PYTHONPATH=. py.test tests/ --tb=long

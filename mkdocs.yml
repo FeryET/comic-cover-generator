@@ -1,0 +1,7 @@
+site_name: Comic Cover Generator
+theme:
+  name: "material"
+
+plugins:
+  - search
+  - mkdocstrings
