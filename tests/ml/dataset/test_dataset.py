@@ -41,9 +41,16 @@ def test_filter_non_existant_images_pass(filenames, path_exists_mocker):
 
 
 def test_create_image_path_column_pass(metadata_dataframe, images_folder):
-    print(images_folder)
     assert all(
         dataset._create_image_path_column(metadata_dataframe, images_folder)[
             "image_path"
         ].apply(os.path.exists)
+    )
+
+
+def test_cover_dataset_create_hdf5_pass(tmp_path, metadata_dataframe, image_size):
+    dataset.CoverDataset.create_hdf5_image_dataset(
+        metadata_dataframe["image_path"],
+        os.path.join(tmp_path, "temporary.h5"),
+        image_size,
     )

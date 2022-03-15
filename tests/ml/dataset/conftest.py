@@ -1,4 +1,5 @@
 import os
+import string
 from pathlib import Path
 
 import numpy as np
@@ -39,32 +40,17 @@ def image_size():
 @pytest.fixture
 def metadata_dataframe(metadata_csv, images_folder, random_seed, image_size):
     metadata = {
-        "series": [
-            "first",
-            "second",
-            "third",
-            "fourth",
-        ],
-        "fulltitle": [
-            "first full title",
-            "second full title",
-            "third full title",
-            "fourth full title",
-        ],
-        "image_url": [
-            "/image/first.jpg",
-            "/image/second.jpg",
-            "/image/third.jpg",
-            "/image/fourth.jpg",
-        ],
+        "series": [str(i) for i in range(11, 30)],
     }
     df = pd.DataFrame(metadata)
+    df["fulltitle"] = df["series"].apply(lambda x: f"{x} full title")
+    df["image_url"] = df["series"].apply(lambda x: f"/image/{x}.jpg")
+    df["image_path"] = df["image_url"].apply(lambda x: f"{images_folder}/{x[7:]}")
     df.to_csv(metadata_csv, index_label=False)
 
     for row in df.itertuples():
         img = random_seed.integers(0, 256, (*image_size, 3)).astype(np.uint8)
-        path = str(Path(images_folder) / row.image_url[7:])
-        Image.fromarray(img).save(path)
+        Image.fromarray(img).save(row.image_path)
 
     return df
 

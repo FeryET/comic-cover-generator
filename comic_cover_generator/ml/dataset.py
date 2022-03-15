@@ -34,7 +34,7 @@ def _filter_non_existant_images(metadata_df: pd.DataFrame) -> pd.DataFrame:
     ].reset_index(drop=True)
 
 
-def _read_resized_image(path: str, image_size) -> Image.Image:
+def _read_resized_image(path: str, image_size: int) -> Image.Image:
     return ImageOps.pad(
         Image.open(path).convert("RGB"),
         image_size,
@@ -73,10 +73,14 @@ class CoverDataset(Dataset):
         """
         h5_file = h5py.File(h5_file_path, "a")
         if (
+            # check if the dataset doest not exists
             "images" not in h5_file
-            or h5_file["images"].shape[1:] != image_size
+            # or if the dataset has a different shape
+            or h5_file["images"].shape[2:] != image_size
+            # or if the dataset creation was terminated mid-creation
             or h5_file["images"].attrs.get("status") != "ready"
         ):
+            # clear the file anyway
             h5_file.clear()
             dataset = h5_file.create_dataset(
                 "images",
@@ -86,10 +90,10 @@ class CoverDataset(Dataset):
                 compression="gzip",
             )
             for index, fpath in enumerate(
-                tqdm(image_paths), desc="creating images hdf5 dataset"
+                tqdm(image_paths, desc="creating images hdf5 dataset")
             ):
                 dataset[index] = np.asarray(
-                    _read_resized_image(fpath),
+                    _read_resized_image(fpath, image_size),
                     dtype=np.uint8,
                 )
             dataset.attrs["status"] = "ready"
