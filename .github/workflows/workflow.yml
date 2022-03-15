@@ -1,0 +1,24 @@
+name: Comic Cover Generator CI
+env:
+  ENVIRONMENT_NAME: "comic_cover_generator"
+
+on:
+  push:
+    branches: [master, develop, "releases/**"]
+  pull_request:
+    branches: [master, develop, "releases/**"]
+
+jobs:
+  Test:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Environment
+        shell: bash
+        run: conda env update -f environment.yml --name base && conda init bash
+
+      - name: Run Unittests
+        shell: bash
+        run: $CONDA/bin/activate base && make test
