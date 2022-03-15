@@ -47,13 +47,5 @@ jobs:
           auto-activate-base: false
 
 
-      - run: |
-          conda info
-          conda list
-          conda config --show
-      # - name: Activate Environment
-      #   run:
-      #     conda activate ${{env.conda_environment}}
-
-      # - name: Run Unittests
-      #   run: PYTHONPATH=. pytest tests/  -q --no-summary --no-header --tb=line
+      - name: Run Unittests
+        run: PYTHONPATH=. python -m pytest tests/  -q --no-summary --no-header --tb=line
