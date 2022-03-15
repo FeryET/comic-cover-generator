@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 import pandas as pd
@@ -15,10 +17,9 @@ from comic_cover_generator.ml import dataset
         lambda x: hash(x) % 2 == 0,
         lambda x: str(x).startswith("f"),
     ],
-    autouse=True,
 )
-def path_exists_mocker(mocker, request):
-    return mocker.patch.object(
+def path_exists_mocker(request):
+    return mock.patch.object(
         Path,
         "exists",
         request.param,
@@ -33,8 +34,16 @@ def filenames(tmp_path, path_exists_mocker):
     ]
 
 
-def test_filter_non_existant_images(filenames, path_exists_mocker):
+def test_filter_non_existant_images_pass(filenames, path_exists_mocker):
     df = pd.DataFrame({"image_path": filenames, "repeated": filenames})
-    print("###########", path_exists_mocker)
     df = dataset._filter_non_existant_images(df)
     assert all(df["image_path"].apply(lambda x: Path(x).exists()))
+
+
+def test_create_image_path_column_pass(metadata_dataframe, images_folder):
+    print(images_folder)
+    assert all(
+        dataset._create_image_path_column(metadata_dataframe, images_folder)[
+            "image_path"
+        ].apply(os.path.exists)
+    )

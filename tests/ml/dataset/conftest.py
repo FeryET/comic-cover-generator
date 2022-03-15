@@ -1,11 +1,10 @@
+import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 from PIL import Image
-
-from comic_cover_generator.ml import dataset
 
 
 @pytest.fixture
@@ -21,8 +20,10 @@ def metadata_csv(generated_data_folder):
 
 
 @pytest.fixture
-def images_folder(generated_data_folder):
-    return generated_data_folder / "images_folder"
+def images_folder(generated_data_folder: Path):
+    folder = generated_data_folder / "images_folder"
+    folder.mkdir()
+    return folder
 
 
 @pytest.fixture
@@ -36,7 +37,7 @@ def image_size():
 
 
 @pytest.fixture
-def setup_generated_test_data(metadata_csv, images_folder, random_seed, image_size):
+def metadata_dataframe(metadata_csv, images_folder, random_seed, image_size):
     metadata = {
         "series": [
             "first",
@@ -51,19 +52,22 @@ def setup_generated_test_data(metadata_csv, images_folder, random_seed, image_si
             "fourth full title",
         ],
         "image_url": [
-            "/image/first/first.jpg",
-            "/image/first/second.jpg",
-            "/image/first/third.jpg",
-            "/image/first/fourth.jpg",
+            "/image/first.jpg",
+            "/image/second.jpg",
+            "/image/third.jpg",
+            "/image/fourth.jpg",
         ],
     }
     df = pd.DataFrame(metadata)
     df.to_csv(metadata_csv, index_label=False)
 
     for row in df.itertuples():
-        img = random_seed.integers(0, 256, (*image_size, 3), "RGB").astype(np.uint8)
-        Image.fromarray(img).save(Path(images_folder) / row.image_url[7:])
+        img = random_seed.integers(0, 256, (*image_size, 3)).astype(np.uint8)
+        path = str(Path(images_folder) / row.image_url[7:])
+        Image.fromarray(img).save(path)
+
+    return df
 
 
-def test_setup_data_works(setup_generated_test_data):
+def test_setup_data_works(metadata_dataframe):
     pass

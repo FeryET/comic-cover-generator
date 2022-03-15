@@ -22,8 +22,8 @@ else:
 def _create_image_path_column(
     metadata_df: pd.DataFrame, images_folder: str
 ) -> pd.DataFrame:
-    metadata_df["image_path"] = metadata_df["image_url"].applymap(
-        lambda x: str(Path(images_folder) / Path(x).parts[1:])
+    metadata_df["image_path"] = metadata_df["image_url"].apply(
+        lambda x: str(Path(images_folder).joinpath(*Path(x).parts[2:]))
     )
     return metadata_df
 
