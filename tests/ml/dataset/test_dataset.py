@@ -1,7 +1,7 @@
 import os
+from bdb import set_trace
 from pathlib import Path
 from unittest import mock
-from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -28,7 +28,7 @@ def path_exists_mocker(request):
 
 
 @pytest.fixture
-def filenames(tmp_path, path_exists_mocker):
+def filenames(tmp_path):
     return [
         str(Path(tmp_path) / item)
         for item in ["filename1", "milename2", "filename3", "filename4"]
@@ -49,9 +49,9 @@ def test_create_image_path_column_pass(metadata_dataframe, images_folder):
     )
 
 
-class TestCoverDataset:
+class TestCoverDatasetClassMethods:
     def test_cover_dataset_create_hdf5_pass(
-        self, tmp_path, metadata_dataframe, image_size
+        self, metadata_dataframe, tmp_path, image_size
     ):
         dataset.CoverDataset.create_hdf5_image_dataset(
             metadata_dataframe["image_path"],
@@ -59,31 +59,55 @@ class TestCoverDataset:
             image_size,
         )
 
-    @pytest.mark.parametrize("preload", [True, False])
-    @pytest.mark.parametrize(
-        "image_transforms",
-        [
+
+class TestCoverDatasetInstanceMethods:
+    @pytest.fixture(scope="class", params=[True, False])
+    def preload_images(self, request):
+        return request.param
+
+    @pytest.fixture(
+        scope="class",
+        params=[
             None,
-            vision_transforms.Compose([vision_transforms.ToTensor()]),
+            vision_transforms.Compose(
+                [
+                    vision_transforms.ToTensor(),
+                ]
+            ),
             vision_transforms.Compose(
                 [vision_transforms.ColorJitter(), vision_transforms.ToTensor()]
             ),
         ],
     )
-    def test_cover_dataset_initialization_pass(
+    def image_transforms(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class")
+    def dataset_instance(
         self,
-        tmp_path,
+        test_cache_folder,
+        preload_images,
+        image_transforms,
         metadata_csv,
         images_folder,
-        preload,
         image_size,
-        image_transforms,
     ):
-        dataset.CoverDataset(
-            metadata_csv,
-            images_folder,
-            preload,
-            os.path.join(tmp_path, "dataset_cache"),
-            image_size,
-            image_transforms,
+        return dataset.CoverDataset(
+            metadata_csv=metadata_csv,
+            images_folder=images_folder,
+            preload_images=preload_images,
+            preload_path=os.path.join(test_cache_folder, "dataset_cache"),
+            image_size=image_size,
+            image_transforms=image_transforms,
         )
+
+    def test_cover_dataset_length(
+        self,
+        dataset_instance,
+        metadata_dataframe,
+    ):
+        assert len(dataset_instance) == len(metadata_dataframe)
+
+    def test_cover_datset_iteration(self, dataset_instance):
+        for item in dataset_instance:
+            pass
