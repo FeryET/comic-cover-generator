@@ -10,6 +10,7 @@ repos:
           - id: check-added-large-files
           - id: check-toml
           - id: pretty-format-json
+            exclude: "^.vscode/"
 
     - repo: https://github.com/asottile/seed-isort-config
       rev: v2.2.0

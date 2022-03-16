@@ -34,7 +34,7 @@ def _filter_non_existant_images(metadata_df: pd.DataFrame) -> pd.DataFrame:
     ].reset_index(drop=True)
 
 
-def _read_resized_image(path: str, image_size: int) -> Image.Image:
+def _read_resized_image(path: str, image_size: Tuple[int, int]) -> Image.Image:
     return ImageOps.pad(
         Image.open(path).convert("RGB"),
         image_size,
@@ -121,25 +121,34 @@ class CoverDataset(Dataset):
             image_transforms (torchvision.transforms.Compose): Image transforms.
         """
         self.image_folder = Path(images_folder)
+        self.preload_images = preload_images
+        self.image_size = image_size
+
         metadata_df = _filter_non_existant_images(
             _create_image_path_column(pd.read_csv(metadata_csv), images_folder)
         )
-        self.preload_images = preload_images
-        self.image_size = image_size
+
         self.data = CoverDataset.Data(
             images=(
                 CoverDataset.create_hdf5_image_dataset(
-                    metadata_df, preload_path, image_size
+                    metadata_df["image_path"].values, preload_path, image_size
                 )
                 if self.preload_images
-                else metadata_df["images"]
+                else metadata_df["image_path"].values
             ),
             metadata=metadata_df,
         )
 
+        if len(self.data.metadata) != len(self.data.images):
+            raise RuntimeError(
+                "metadata dataframe and image_paths are not equal length!"
+            )
+
         if image_transforms is None:
             self.image_transforms = vision_transforms.Compose(
-                vision_transforms.ToTensor()
+                [
+                    vision_transforms.ToTensor(),
+                ]
             )
         elif not any(
             isinstance(trns, vision_transforms.ToTensor)
@@ -148,6 +157,8 @@ class CoverDataset(Dataset):
             raise ValueError(
                 "Please add a ToTensor trnasformation to the Compose object."
             )
+        else:
+            self.image_transforms = image_transforms
 
     def __len__(self) -> int:
         """Returns the length of the dataset.
@@ -155,7 +166,7 @@ class CoverDataset(Dataset):
         Returns:
             int:
         """
-        return len(self.data["metadata"])
+        return len(self.data.metadata)
 
     def __getitem__(self, index: int) -> CoverDatasetItem:
         """Get the item in dataset.
@@ -170,6 +181,6 @@ class CoverDataset(Dataset):
             image = self.data.images[index]
         else:
             # read PIL image
-            image = _read_resized_image(self.data.images[index])
+            image = _read_resized_image(self.data.images[index], self.image_size)
         image = self.image_transforms(image)
         return {"image": image}
