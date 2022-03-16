@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
+from torchvision import transforms as vision_transforms
 
 from comic_cover_generator.ml import dataset
 
@@ -48,9 +49,41 @@ def test_create_image_path_column_pass(metadata_dataframe, images_folder):
     )
 
 
-def test_cover_dataset_create_hdf5_pass(tmp_path, metadata_dataframe, image_size):
-    dataset.CoverDataset.create_hdf5_image_dataset(
-        metadata_dataframe["image_path"],
-        os.path.join(tmp_path, "temporary.h5"),
-        image_size,
+class TestCoverDataset:
+    def test_cover_dataset_create_hdf5_pass(
+        self, tmp_path, metadata_dataframe, image_size
+    ):
+        dataset.CoverDataset.create_hdf5_image_dataset(
+            metadata_dataframe["image_path"],
+            os.path.join(tmp_path, "temporary.h5"),
+            image_size,
+        )
+
+    @pytest.mark.parametrize("preload", [True, False])
+    @pytest.mark.parametrize(
+        "image_transforms",
+        [
+            None,
+            vision_transforms.Compose([vision_transforms.ToTensor()]),
+            vision_transforms.Compose(
+                [vision_transforms.ColorJitter(), vision_transforms.ToTensor()]
+            ),
+        ],
     )
+    def test_cover_dataset_initialization_pass(
+        self,
+        tmp_path,
+        metadata_csv,
+        images_folder,
+        preload,
+        image_size,
+        image_transforms,
+    ):
+        dataset.CoverDataset(
+            metadata_csv,
+            images_folder,
+            preload,
+            os.path.join(tmp_path, "dataset_cache"),
+            image_size,
+            image_transforms,
+        )

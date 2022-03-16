@@ -126,13 +126,16 @@ class CoverDataset(Dataset):
         )
         self.preload_images = preload_images
         self.image_size = image_size
+
+        with pd.option_context("display.max_columns", None):
+            print(metadata_df)
         self.data = CoverDataset.Data(
             images=(
                 CoverDataset.create_hdf5_image_dataset(
-                    metadata_df, preload_path, image_size
+                    metadata_df["image_path"], preload_path, image_size
                 )
                 if self.preload_images
-                else metadata_df["images"]
+                else metadata_df["image_path"]
             ),
             metadata=metadata_df,
         )
