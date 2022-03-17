@@ -1,12 +1,21 @@
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = [
+  "--strict-markers",
+  "--disable-pytest-warnings",
+  "-ra",
+  "--cov",
+]
+markers = [
+  "training: tests that involve training",
+]
 minversion = "6.2"
+python_files = "test_*.py"
 testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-omit = ["tests/fixtures/*"]
-source = ["tests"]
+omit = ["comic_cover_generator/typing.py"]
+source = ["comic_cover_generator/"]
 
 [tool.coverage.report]
 exclude_lines = [
