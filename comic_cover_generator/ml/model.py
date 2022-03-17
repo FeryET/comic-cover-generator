@@ -104,7 +104,7 @@ class GAN(pl.LightningModule):
         super().__init__()
 
         self.generator = Generator(pretrained=pretrained)
-        self.discrimantor = Discriminator(pretrained=pretrained)
+        self.discriminator = Discriminator(pretrained=pretrained)
 
         self.save_hyperparameters()
 
@@ -123,7 +123,7 @@ class GAN(pl.LightningModule):
                 }
             )
 
-        self.adverserial_loss = nn.BCELoss()
+        self.adversarial_loss = nn.BCEWithLogitsLoss()
 
         self.validation_z = torch.randn(8, self.generator.latent_dim)
 
@@ -161,10 +161,10 @@ class GAN(pl.LightningModule):
         Returns:
             Dict[str, Any]: The output of the training step.
         """
-        imgs = batch["image"]
+        imgs: torch.Tensor = batch["image"]
 
         # sample noise
-        z = torch.randn(imgs.shape[0], self.generator.latent_dim, dtype=imgs.dype)
+        z = torch.randn(imgs.shape[0], self.generator.latent_dim, dtype=imgs.dtype)
 
         # train generator
         if optimizer_idx == 0:
