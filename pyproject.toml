@@ -1,15 +1,36 @@
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = [
+  "--strict-markers",
+  "--disable-pytest-warnings",
+  "-ra",
+  "--cov",
+]
+markers = [
+  "training: tests that involve training",
+]
 minversion = "6.2"
+python_files = "test_*.py"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+omit = ["comic_cover_generator/typing.py"]
+source = ["comic_cover_generator/"]
 
 [tool.coverage.report]
 exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "def __str__",
+  "raise AssertionError",
   "raise NotImplementedError",
-  "raise NotImplementedError()",
-  "pragma: nocover",
   "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+  "if typing.TYPE_CHECKING:",
 ]
+
+[tool.coverage.html]
+directory = "cov_html"
 
 [tool.black]
 experimental-string-processing = true
@@ -19,7 +40,7 @@ line-length = 88
 [tool.isort]
 known_first_party = ["nn_core"]
 known_local_folder = "comic_cover_generator"
-known_third_party = ["PIL", "h5py", "numpy", "pandas", "pytest", "setuptools", "torch", "torchvision", "tqdm"]
+known_third_party = ["PIL", "h5py", "numpy", "pandas", "pytest", "pytorch_lightning", "setuptools", "torch", "torchvision", "tqdm"]
 line_length = 88
 profile = 'black'
 

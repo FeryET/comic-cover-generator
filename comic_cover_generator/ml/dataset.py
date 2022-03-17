@@ -1,5 +1,4 @@
 """Dataset module."""
-import platform
 from collections import namedtuple
 from pathlib import Path
 from typing import Sequence, Tuple
@@ -13,10 +12,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms as vision_transforms
 from tqdm.auto import tqdm
 
-if float(platform.sys.version[:3]) < 3.8:
-    from typing_extensions import TypedDict
-else:
-    from typing import TypedDict
+from comic_cover_generator.typing import TypedDict
 
 
 def _create_image_path_column(

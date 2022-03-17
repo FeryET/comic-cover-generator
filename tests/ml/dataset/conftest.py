@@ -5,11 +5,7 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-
-@pytest.fixture(scope="session", autouse=True)
-def test_cache_folder(tmpdir_factory):
-    folder_path = Path(str(tmpdir_factory.mktemp("test_caches")))
-    return folder_path
+from tests.fixtures import image_size, random_state, seed, test_cache_folder
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -31,18 +27,8 @@ def images_folder(generated_data_folder: Path):
     return folder
 
 
-@pytest.fixture(scope="session", autouse=True)
-def random_seed():
-    return np.random.default_rng(42)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def image_size():
-    return (250, 250)
-
-
 @pytest.fixture(scope="session")
-def metadata_dataframe(metadata_csv, images_folder, random_seed, image_size):
+def metadata_dataframe(metadata_csv, images_folder, random_state, image_size):
     metadata = {
         "series": [str(i) for i in range(11, 30)],
     }
@@ -53,8 +39,8 @@ def metadata_dataframe(metadata_csv, images_folder, random_seed, image_size):
     df.to_csv(metadata_csv, index_label=False)
 
     for row in df.itertuples():
-        curr_img_size = random_seed.integers(0, image_size, len(image_size))
-        img = random_seed.integers(0, 256, (*curr_img_size, 3)).astype(np.uint8)
+        curr_img_size = random_state.integers(0, image_size, len(image_size))
+        img = random_state.integers(0, 256, (*curr_img_size, 3)).astype(np.uint8)
         Image.fromarray(img).save(row.image_path)
 
     return df

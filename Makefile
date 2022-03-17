@@ -4,7 +4,7 @@
 ## test-section
 
 test:
-	PYTHONPATH=. pytest tests/  -q  --no-header --tb=line
+	PYTHONPATH=. python -m pytest tests/  -q  --no-header --tb=line --cov=comic_cover_generator/
 
 test_full_err:
-	PYTHONPATH=. pytest tests/ --tb=long
+	PYTHONPATH=. python -m pytest tests/ --tb=long --cov=comic_cover_generator/
