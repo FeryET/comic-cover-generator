@@ -23,6 +23,7 @@ exclude =
     .direnv
     .dvc
     tests
+    comic_cover_generator/typing.py
     # tests/ml/dataset/*.py
 
 per-file-ignores =
