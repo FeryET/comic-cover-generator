@@ -161,7 +161,7 @@ class GAN(pl.LightningModule):
         Returns:
             Dict[str, Any]: The output of the training step.
         """
-        imgs = batch["images"]
+        imgs = batch["image"]
 
         # sample noise
         z = torch.randn(imgs.shape[0], self.generator.latent_dim, dtype=imgs.dype)
