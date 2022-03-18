@@ -1,33 +1,51 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
-    - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v4.1.0
-      hooks:
-          - id: trailing-whitespace
-          - id: end-of-file-fixer
-          - id: check-yaml
-          - id: check-added-large-files
-          - id: check-toml
-          - id: pretty-format-json
-            exclude: "^.vscode/"
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.1.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-toml
+      - id: pretty-format-json
+        exclude: "^.vscode/"
 
-    - repo: https://github.com/asottile/seed-isort-config
-      rev: v2.2.0
-      hooks:
-          - id: seed-isort-config
-    - repo: https://github.com/pre-commit/mirrors-isort
-      rev: v5.10.1
-      hooks:
-          - id: isort
-    - repo: https://github.com/ambv/black
-      rev: 22.1.0
-      hooks:
-          - id: black
-    - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v2.3.0
-      hooks:
-          - id: flake8
-            additional_dependencies:
-                - flake8-docstrings
-            files: "^comic_cover_generator/"
+  - repo: https://github.com/asottile/seed-isort-config
+    rev: v2.2.0
+    hooks:
+      - id: seed-isort-config
+  - repo: https://github.com/pre-commit/mirrors-isort
+    rev: v5.10.1
+    hooks:
+      - id: isort
+  - repo: https://github.com/ambv/black
+    rev: 22.1.0
+    hooks:
+      - id: black
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          - flake8-docstrings
+        files: "^comic_cover_generator/"
+  - repo: https://github.com/iterative/dvc
+    rev: 2.9.5
+    hooks:
+      - id: dvc-pre-commit
+        language_version: python3
+        stages:
+          - commit
+      - id: dvc-pre-push
+        # use s3/gs/etc instead of all to only install specific cloud support
+        additional_dependencies: [".[all]"]
+        language_version: python3
+        stages:
+          - push
+      - always_run: true
+        id: dvc-post-checkout
+        language_version: python3
+        stages:
+          - post-checkout
