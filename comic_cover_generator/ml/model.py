@@ -92,14 +92,14 @@ class GAN(pl.LightningModule):
 
     def __init__(
         self,
-        sub_models_optimizer_params: Dict[str, OptimizerParams] = None,
-        pretrained: int = True,
+        optimizer_params: Dict[str, OptimizerParams] = None,
+        pretrained: bool = True,
     ) -> None:
         """Instantiate a GAN object.
 
         Args:
-            sub_models_optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
-            pretrained (int, optional): Defaults to True.
+            optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
+            pretrained (bool, optional): Defaults to True.
         """
         super().__init__()
 
@@ -108,7 +108,7 @@ class GAN(pl.LightningModule):
 
         self.save_hyperparameters()
 
-        if sub_models_optimizer_params is None:
+        if optimizer_params is None:
             default_params = {
                 "cls": torch.optim.AdamW,
                 "kwargs": {
@@ -116,7 +116,7 @@ class GAN(pl.LightningModule):
                     "weight_decay": 0.01,
                 },
             }
-            self.sub_models_optimizer_params = OrderedDict(
+            self.optimizer_params = OrderedDict(
                 {
                     "generator": default_params,
                     "discriminator": default_params,
@@ -133,9 +133,7 @@ class GAN(pl.LightningModule):
         Returns:
             List[torch.optim.Optimizer]: _description_
         """
-        return [
-            v["cls"](**v["kwargs"]) for _, v in self.sub_models_optimizer_params.items()
-        ]
+        return [v["cls"](**v["kwargs"]) for _, v in self.optimizer_params.items()]
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """Forward calls only the generator.

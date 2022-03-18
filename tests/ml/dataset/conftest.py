@@ -34,8 +34,8 @@ def metadata_dataframe(metadata_csv, images_folder, random_state, image_size):
     }
     df = pd.DataFrame(metadata)
     df["fulltitle"] = df["series"].apply(lambda x: f"{x} full title")
-    df["image_url"] = df["series"].apply(lambda x: f"/image/{x}.jpg")
-    df["image_path"] = df["image_url"].apply(lambda x: f"{images_folder}/{x[7:]}")
+    df["img_url"] = df["series"].apply(lambda x: f"/image/{x}.jpg")
+    df["image_path"] = df["img_url"].apply(lambda x: f"{images_folder}/{x[7:]}")
     df.to_csv(metadata_csv, index_label=False)
 
     for row in df.itertuples():
