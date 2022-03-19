@@ -1,0 +1,13 @@
+pretrained: False
+batch_size: 1
+optimizer_params:
+    generator:
+        cls: "${get_cls: torch.optim.AdamW}"
+        kwargs:
+            lr: 3e-4
+            weight_decay: 0.01
+    discriminator:
+        cls: "${get_cls: torch.optim.AdamW}"
+        kwargs:
+            lr: 3e-4
+            weight_decay: 0.01

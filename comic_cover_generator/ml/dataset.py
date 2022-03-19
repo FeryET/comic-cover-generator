@@ -18,7 +18,7 @@ from comic_cover_generator.typing import TypedDict
 def _create_image_path_column(
     metadata_df: pd.DataFrame, images_folder: str
 ) -> pd.DataFrame:
-    metadata_df["image_path"] = metadata_df["image_url"].apply(
+    metadata_df["image_path"] = metadata_df["img_url"].apply(
         lambda x: str(Path(images_folder).joinpath(*Path(x).parts[2:]))
     )
     return metadata_df
@@ -119,15 +119,22 @@ class CoverDataset(Dataset):
         self.image_folder = Path(images_folder)
         self.preload_images = preload_images
         self.image_size = image_size
+        Path(preload_path).mkdir(exist_ok=True)
 
         metadata_df = _filter_non_existant_images(
             _create_image_path_column(pd.read_csv(metadata_csv), images_folder)
         )
 
+        h5_file_path = str(
+            Path(preload_path) / ("cache_" + Path(metadata_csv).stem + ".h5")
+        )
+
         self.data = CoverDataset.Data(
             images=(
                 CoverDataset.create_hdf5_image_dataset(
-                    metadata_df["image_path"].values, preload_path, image_size
+                    metadata_df["image_path"].values,
+                    h5_file_path,
+                    image_size,
                 )
                 if self.preload_images
                 else metadata_df["image_path"].values
@@ -173,8 +180,9 @@ class CoverDataset(Dataset):
         Returns:
             CoverDatasetItem: A dictionary of tensors.
         """
+        # TODO: add PIL image tests.
         if self.preload_images:
-            image = self.data.images[index]
+            image = Image.fromarray(self.data.images[index])
         else:
             # read PIL image
             image = _read_resized_image(self.data.images[index], self.image_size)

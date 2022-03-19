@@ -1,0 +1,24 @@
+metadata_csv: "${hydra:runtime.cwd}/data/dev_subset/sampled_dataset_seed_42_population_0.001.csv"
+images_folder: "${hydra:runtime.cwd}/data/dev_subset/image/"
+preload_images: True,
+preload_path: "${hydra:runtime.cwd}/cache/"
+image_size: [250, 250]
+image_transforms:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: torchvision.transforms.RandomCrop
+      size: [224, 224]
+    - _target_: torchvision.transforms.RandomApply
+      p: 0.1
+      transforms:
+        - _target_: torchvision.transforms.RandomGrayscale
+          p: 1.0
+        - _target_: torchvision.transforms.RandomPosterize
+          p: 1.0
+          bits: 4
+        - _target_: torchvision.transforms.ColorJitter
+          brightness: [0.5, 1.5]
+          contrast: [0.5, 1.5]
+          saturation: [0.5, 1.5]
+          hue: [-0.3, 0.3]
+    - _target_: torchvision.transforms.ToTensor
