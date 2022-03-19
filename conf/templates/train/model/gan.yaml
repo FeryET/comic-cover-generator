@@ -1,4 +1,5 @@
 pretrained: False
+batch_size: 1
 optimizer_params:
     generator:
         cls: "${get_cls: torch.optim.AdamW}"

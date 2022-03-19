@@ -94,14 +94,18 @@ class GAN(pl.LightningModule):
         self,
         optimizer_params: Dict[str, OptimizerParams] = None,
         pretrained: bool = True,
+        batch_size: int = 1,
     ) -> None:
         """Instantiate a GAN object.
 
         Args:
             optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
             pretrained (bool, optional): Defaults to True.
+            batch_size (in, optional): Defaults to 1.
         """
         super().__init__()
+
+        self.batch_size = batch_size
 
         self.generator = Generator(pretrained=pretrained)
         self.discriminator = Discriminator(pretrained=pretrained)
@@ -116,12 +120,13 @@ class GAN(pl.LightningModule):
                     "weight_decay": 0.01,
                 },
             }
-            self.optimizer_params = OrderedDict(
+            optimizer_params = OrderedDict(
                 {
                     "generator": default_params,
                     "discriminator": default_params,
                 }
             )
+        self.optimizer_params = optimizer_params
 
         self.adversarial_loss = nn.BCEWithLogitsLoss()
 
@@ -131,9 +136,12 @@ class GAN(pl.LightningModule):
         """Configure the optimizers of the model.
 
         Returns:
-            List[torch.optim.Optimizer]: _description_
+            List[torch.optim.Optimizer]:
         """
-        return [v["cls"](**v["kwargs"]) for _, v in self.optimizer_params.items()]
+        return [
+            v["cls"](self.parameters(), **v["kwargs"])
+            for _, v in self.optimizer_params.items()
+        ]
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """Forward calls only the generator.
@@ -175,7 +183,7 @@ class GAN(pl.LightningModule):
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
-
+            self.log("generator_loss", generator_loss)
             return output
 
         # train discriminator
@@ -193,7 +201,7 @@ class GAN(pl.LightningModule):
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
-
+            self.log("discriminator_loss", discrimantor_loss)
             return output
 
     def on_epoch_end(self):

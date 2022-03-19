@@ -181,7 +181,7 @@ class CoverDataset(Dataset):
             CoverDatasetItem: A dictionary of tensors.
         """
         if self.preload_images:
-            image = self.data.images[index]
+            image = Image.fromarray(self.data.images[index])
         else:
             # read PIL image
             image = _read_resized_image(self.data.images[index], self.image_size)
