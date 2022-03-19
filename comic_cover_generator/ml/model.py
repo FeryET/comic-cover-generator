@@ -87,6 +87,7 @@ class OptimizerParams(TypedDict):
     kwargs: Dict[str, Any]
 
 
+# TODO: Make this class configurable.
 class GAN(pl.LightningModule):
     """GAN class."""
 
