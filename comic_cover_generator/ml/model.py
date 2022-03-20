@@ -137,17 +137,20 @@ class GAN(pl.LightningModule):
         optimizer_params: Dict[str, OptimizerParams] = None,
         pretrained: bool = True,
         batch_size: int = 1,
+        discriminator_loss_threshold: float = 0.3,
     ) -> None:
         """Instantiate a GAN object.
 
         Args:
             optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
             pretrained (bool, optional): Defaults to True.
-            batch_size (in, optional): Defaults to 1.
+            batch_size (int, optional): Defaults to 1.
+            discriminator_loss_threshold (float, optional): Defaults to 0.3.
         """
         super().__init__()
 
         self.batch_size = batch_size
+        self.discriminator_loss_threshold = discriminator_loss_threshold
 
         self.generator = Generator(pretrained=pretrained)
         self.discriminator = Discriminator()
@@ -261,7 +264,10 @@ class GAN(pl.LightningModule):
             self.log(
                 "discriminator_loss", tqdm_dict["discriminator_loss"], prog_bar=True
             )
-            return output
+            if discrimantor_loss < self.discriminator_loss_threshold:
+                return None
+            else:
+                return output
 
     def on_epoch_end(self):
         """Generate an output on epoch end callback."""
