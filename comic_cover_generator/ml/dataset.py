@@ -30,12 +30,12 @@ def _filter_non_existant_images(metadata_df: pd.DataFrame) -> pd.DataFrame:
     ].reset_index(drop=True)
 
 
-def _read_resized_image(path: str, image_size: Tuple[int, int]) -> Image.Image:
+def _pad_image_to_shape(image: Image.Image, image_size: Tuple[int, int]) -> Image.Image:
     return ImageOps.pad(
-        Image.open(path).convert("RGB"),
+        image,
         image_size,
         color=0,
-        centering=(0.5, 0.5),
+        centering=(0.0, 0.0),
     )
 
 
@@ -88,8 +88,9 @@ class CoverDataset(Dataset):
             for index, fpath in enumerate(
                 tqdm(image_paths, desc="creating images hdf5 dataset")
             ):
+                image = Image.open(fpath).convert("RGB")
                 dataset[index] = np.asarray(
-                    _read_resized_image(fpath, image_size),
+                    _pad_image_to_shape(image, image_size),
                     dtype=np.uint8,
                 )
             dataset.attrs["status"] = "ready"
@@ -185,6 +186,7 @@ class CoverDataset(Dataset):
             image = Image.fromarray(self.data.images[index])
         else:
             # read PIL image
-            image = _read_resized_image(self.data.images[index], self.image_size)
+            image = Image.open(self.data.images[index]).convert("RGB")
+            image = _pad_image_to_shape(image, self.image_size)
         image = self.image_transforms(image)
         return {"image": image}
