@@ -34,7 +34,7 @@ class Discriminator(nn.Module, Freezeable):
             pretrained (bool, optional): Defaults to True.
         """
         super().__init__()
-        self.features = torchvision.models.mobilenet_v3_large(pretrained=pretrained)
+        self.features = torchvision.models.mobilenet_v3_small(pretrained=pretrained)
         self.clf = nn.Linear(1000, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
