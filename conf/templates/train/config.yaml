@@ -3,18 +3,6 @@ defaults:
   - model: gan
   - _self_
 
-optimizer:
-  generator:
-    cls: torch.optim.AdamW
-    kwargs:
-      lr: 3e-4
-      weight_decay: 0.01
-  discriminator:
-    cls: torch.optim.AdamW
-    kwargs:
-      lr: 3e-4
-      weight_decay: 0.01
-
 logger: {}
 
 trainer:
