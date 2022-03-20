@@ -5,7 +5,6 @@ import mlflow
 import pytorch_lightning as pl
 from hydra.utils import get_class, instantiate
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import DataLoader
 
 from comic_cover_generator.ml.dataset import CoverDataset
 from comic_cover_generator.ml.model import GAN
@@ -24,13 +23,13 @@ def train(cfg: DictConfig):
 
     config = instantiate(cfg, _convert_="partial")
 
+    # init data
+    dataset = CoverDataset(**config["dataset"])
+
     # init model
     model = GAN(**config["model"])
     model.make_partially_trainable()
-
-    # init data
-    dataset = CoverDataset(**config["dataset"])
-    dataloader = DataLoader(dataset=dataset, batch_size=model.batch_size, shuffle=True)
+    model.attach_train_dataset(dataset)
 
     # init trainer
     trainer = pl.Trainer(**config["trainer"])
@@ -40,7 +39,8 @@ def train(cfg: DictConfig):
 
     with mlflow.start_run():
         mlflow.log_artifact(".hydra/config.yaml", "config.yaml")
-        trainer.fit(model, dataloader)
+        trainer.tune(model)
+        trainer.fit(model)
 
 
 if __name__ == "__main__":

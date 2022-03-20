@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 import torch
 import torchvision
 from torch import nn
+from torch.utils.data import DataLoader, Dataset
 
 from comic_cover_generator.typing import Protocol, TypedDict
 
@@ -151,6 +152,7 @@ class GAN(pl.LightningModule):
         """
         super().__init__()
 
+        self.train_dataset = None
         self.batch_size = batch_size
         self.discriminator_update_step = discriminator_update_step
         self.discriminator_loss_threshold = discriminator_loss_threshold
@@ -184,6 +186,14 @@ class GAN(pl.LightningModule):
         """Make some layers partially trainable in the model."""
         self.generator.unfreeze()
         self.discriminator.unfreeze()
+
+    def attach_train_dataset(self, train_dataset: Dataset):
+        """Attach train dataset.
+
+        Args:
+            train_dataset (Dataset): train dataset.
+        """
+        self.train_dataset = train_dataset
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
         """Configure the optimizers of the model.
@@ -285,3 +295,15 @@ class GAN(pl.LightningModule):
         sample_imgs = self(z)
         grid = torchvision.utils.make_grid(sample_imgs)
         self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
+
+    def train_dataloader(self) -> DataLoader:
+        """Get the train loader.
+
+        Returns:
+            DataLoader: train data loader.
+        """
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+        )

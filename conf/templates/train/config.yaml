@@ -9,7 +9,7 @@ trainer:
   max_steps: 10000
   gpus: 0
   amp_backend: "apex"
-  auto_lr_find: True
+  auto_lr_find: False
   auto_scale_batch_size: binsearch
   gradient_clip_val: 0.5
   enable_progress_bar: True
