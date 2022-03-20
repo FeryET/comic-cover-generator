@@ -188,7 +188,7 @@ class GAN(pl.LightningModule):
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
-            self.log("generator_loss", tqdm_dict["generator_loss"])
+            self.log("generator_loss", tqdm_dict["generator_loss"], prog_bar=True)
             return output
 
         # train discriminator
@@ -206,7 +206,9 @@ class GAN(pl.LightningModule):
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
-            self.log("discriminator_loss", tqdm_dict["discriminator_loss"])
+            self.log(
+                "discriminator_loss", tqdm_dict["discriminator_loss"], prog_bar=True
+            )
             return output
 
     def on_epoch_end(self):
