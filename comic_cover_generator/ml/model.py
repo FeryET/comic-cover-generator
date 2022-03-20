@@ -30,8 +30,17 @@ class Discriminator(nn.Module, Freezeable):
     def __init__(self) -> None:
         """Initialize an instance."""
         super().__init__()
-        self.features = torchvision.models.mobilenet_v3_small(pretrained=False)
-        self.clf = nn.Linear(1000, 1)
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, 5, 4, 2, bias=False),
+            nn.BatchNorm2d(32),
+            nn.Conv2d(32, 128, 3, 4, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 256, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(256),
+            nn.AdaptiveMaxPool2d((1, 1)),
+            nn.Flatten(),
+        )
+        self.clf = nn.Linear(256, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
