@@ -72,7 +72,8 @@ class CoverDataset(Dataset):
             # check if the dataset doest not exists
             "images" not in h5_file
             # or if the dataset has a different shape
-            or h5_file["images"].shape[2:] != image_size
+            # shape is N, H, W, C -> H, W = shape[1:-1]
+            or all(h5_file["images"].shape[1:-1] != np.asarray(image_size))
             # or if the dataset creation was terminated mid-creation
             or h5_file["images"].attrs.get("status") != "ready"
         ):
