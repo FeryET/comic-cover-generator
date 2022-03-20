@@ -27,14 +27,10 @@ class Discriminator(nn.Module, Freezeable):
 
     input_shape: Tuple[int, int] = (224, 224)
 
-    def __init__(self, pretrained: bool = True) -> None:
-        """Initialize an instance.
-
-        Args:
-            pretrained (bool, optional): Defaults to True.
-        """
+    def __init__(self) -> None:
+        """Initialize an instance."""
         super().__init__()
-        self.features = torchvision.models.mobilenet_v3_small(pretrained=pretrained)
+        self.features = torchvision.models.mobilenet_v3_small(pretrained=False)
         self.clf = nn.Linear(1000, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -145,7 +141,7 @@ class GAN(pl.LightningModule):
         self.batch_size = batch_size
 
         self.generator = Generator(pretrained=pretrained)
-        self.discriminator = Discriminator(pretrained=pretrained)
+        self.discriminator = Discriminator()
 
         self.save_hyperparameters()
 

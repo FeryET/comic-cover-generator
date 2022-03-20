@@ -9,7 +9,7 @@ from comic_cover_generator.ml.model import Discriminator
 
 @pytest.fixture(scope="module")
 def disc():
-    return Discriminator(pretrained=False)
+    return Discriminator()
 
 
 @pytest.fixture(scope="module")
