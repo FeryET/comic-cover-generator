@@ -111,14 +111,6 @@ class GAN(pl.LightningModule):
         self.generator = Generator(pretrained=pretrained)
         self.discriminator = Discriminator(pretrained=pretrained)
 
-        for p in self.generator.features.parameters():
-            p.requires_grad = False
-
-        for p in nn.ModuleList(
-            [self.generator.features.toRGBLayers, self.generator.features.formatLayer]
-        ).parameters():
-            p.requires_grad = True
-
         self.save_hyperparameters()
 
         if optimizer_params is None:
@@ -151,6 +143,16 @@ class GAN(pl.LightningModule):
             v["cls"](self.parameters(), **v["kwargs"])
             for _, v in self.optimizer_params.items()
         ]
+
+    def freeze_layers(self):
+        """Freezes some layers in the model."""
+        for p in self.generator.features.parameters():
+            p.requires_grad = False
+
+        for p in nn.ModuleList(
+            [self.generator.features.toRGBLayers, self.generator.features.formatLayer]
+        ).parameters():
+            p.requires_grad = True
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """Forward calls only the generator.

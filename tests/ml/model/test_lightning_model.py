@@ -12,10 +12,11 @@ class MockedGen(nn.Module):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__()
-        self.linear = nn.Linear(self.latent_dim, 100)
+        self.features = nn.Linear(self.latent_dim, 1)
+        self.resizer = nn.Linear(1, 100)
 
     def forward(self, x):
-        return self.linear(x)
+        return self.resizer(self.features(x))
 
 
 class MockedDisc(nn.Module):
@@ -23,10 +24,11 @@ class MockedDisc(nn.Module):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__()
-        self.linear = nn.Linear(self.input_shape, 1)
+        self.features = nn.Linear(self.input_shape, 2)
+        self.clf = nn.Linear(2, 1)
 
     def forward(self, x):
-        return self.linear(x)
+        return self.clf(self.features(x))
 
 
 @pytest.fixture(scope="module")

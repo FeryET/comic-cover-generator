@@ -23,11 +23,19 @@ def train(cfg: DictConfig):
     OmegaConf.register_new_resolver(name="get_cls", resolver=lambda cls: get_class(cls))
 
     config = instantiate(cfg, _convert_="partial")
+
+    # init model
     model = GAN(**config["model"])
+    model.freeze_layers()
+
+    # init data
     dataset = CoverDataset(**config["dataset"])
     dataloader = DataLoader(dataset=dataset, batch_size=model.batch_size, shuffle=True)
+
+    # init trainer
     trainer = pl.Trainer(**config["trainer"])
 
+    # init logger
     mlflow.pytorch.autolog(**config["logger"])
 
     with mlflow.start_run():
