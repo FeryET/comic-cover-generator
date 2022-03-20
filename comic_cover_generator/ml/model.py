@@ -22,8 +22,8 @@ class Discriminator(nn.Module):
             pretrained (bool, optional): Defaults to True.
         """
         super().__init__()
-        self.features = torchvision.models.mobilenet_v3_small(pretrained=pretrained)
-        self.clf = nn.Linear(1000, 1, bias=False)
+        self.features = torchvision.models.mobilenet_v3_large(pretrained=pretrained)
+        self.clf = nn.Linear(1000, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -110,6 +110,14 @@ class GAN(pl.LightningModule):
 
         self.generator = Generator(pretrained=pretrained)
         self.discriminator = Discriminator(pretrained=pretrained)
+
+        for p in self.generator.features.parameters():
+            p.requires_grad = False
+
+        for p in nn.ModuleList(
+            [self.generator.features.toRGBLayers, self.generator.features.formatLayer]
+        ).parameters():
+            p.requires_grad = True
 
         self.save_hyperparameters()
 
