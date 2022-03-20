@@ -150,7 +150,10 @@ class GAN(pl.LightningModule):
             p.requires_grad = False
 
         for p in nn.ModuleList(
-            [self.generator.features.toRGBLayers, self.generator.features.formatLayer]
+            [
+                self.generator.features.toRGBLayers,
+                self.generator.features.scaleLayers[-2:],
+            ]
         ).parameters():
             p.requires_grad = True
 
@@ -223,7 +226,9 @@ class GAN(pl.LightningModule):
 
     def on_epoch_end(self):
         """Generate an output on epoch end callback."""
-        z = self.validation_z.type_as(self.generator.model[0].weight)
+        z = self.validation_z.type_as(self.generator.resizer.weight).to(
+            self.generator.resizer.weight.device
+        )
 
         # log sampled images
         sample_imgs = self(z)
