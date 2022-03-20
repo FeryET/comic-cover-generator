@@ -48,6 +48,7 @@ class Generator(nn.Module):
 
         Args:
             pretrained (bool, optional): Defaults to True.
+            use_apu (bool, optional): Defaults to False.
         """
         super().__init__()
         self.features = torch.hub.load(
@@ -65,7 +66,6 @@ class Generator(nn.Module):
             stride=1,
             padding=0,
             groups=3,
-            bias=False,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -170,39 +170,43 @@ class GAN(pl.LightningModule):
         """
         imgs: torch.Tensor = batch["image"]
 
+        device = imgs.device
+
         # sample noise
-        z = torch.randn(imgs.shape[0], self.generator.latent_dim, dtype=imgs.dtype)
+        z = torch.randn(
+            imgs.shape[0], self.generator.latent_dim, dtype=imgs.dtype, device=device
+        )
 
         # train generator
         if optimizer_idx == 0:
-            valid = torch.ones(imgs.size(0), 1)
+            valid = torch.ones(imgs.size(0), 1, device=device)
             valid = valid.type_as(imgs)
             generator_loss = self.adversarial_loss(self.discriminator(self(z)), valid)
-            tqdm_dict = {"generator_loss": generator_loss}
+            tqdm_dict = {"generator_loss": generator_loss.detach()}
             output = {
                 "loss": generator_loss,
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
-            self.log("generator_loss", generator_loss)
+            self.log("generator_loss", tqdm_dict["generator_loss"])
             return output
 
         # train discriminator
         if optimizer_idx == 1:
-            valid = torch.ones(imgs.size(0), 1, dtype=imgs.dtype)
+            valid = torch.ones(imgs.size(0), 1, dtype=imgs.dtype, device=device)
             real_loss = self.adversarial_loss(self.discriminator(imgs), valid)
-            fake = torch.zeros(imgs.size(0), 1, dtype=imgs.dtype)
+            fake = torch.zeros(imgs.size(0), 1, dtype=imgs.dtype, device=device)
             fake_loss = self.adversarial_loss(
                 self.discriminator(self(z).detach()), fake
             )
             discrimantor_loss = (real_loss + fake_loss) / 2
-            tqdm_dict = {"discriminator_loss": discrimantor_loss}
+            tqdm_dict = {"discriminator_loss": discrimantor_loss.detach()}
             output = {
                 "loss": discrimantor_loss,
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
-            self.log("discriminator_loss", discrimantor_loss)
+            self.log("discriminator_loss", tqdm_dict["discriminator_loss"])
             return output
 
     def on_epoch_end(self):
