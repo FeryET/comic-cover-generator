@@ -1,6 +1,7 @@
 pretrained: False
 batch_size: 1
 discriminator_loss_threshold: 0.3
+discriminator_update_step: 3
 optimizer_params:
     generator:
         cls: "${get_cls: torch.optim.AdamW}"

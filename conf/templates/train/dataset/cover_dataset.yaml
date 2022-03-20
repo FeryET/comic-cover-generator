@@ -9,7 +9,7 @@ image_transforms:
     - _target_: torchvision.transforms.RandomCrop
       size: [224, 224]
     - _target_: torchvision.transforms.RandomApply
-      p: 0.1
+      p: 0.5
       transforms:
         - _target_: torchvision.transforms.RandomGrayscale
           p: 1.0
@@ -17,8 +17,11 @@ image_transforms:
           p: 1.0
           bits: 4
         - _target_: torchvision.transforms.ColorJitter
-          brightness: [0.5, 1.5]
-          contrast: [0.5, 1.5]
-          saturation: [0.5, 1.5]
-          hue: [-0.3, 0.3]
+          brightness: [0.9, 1.1]
+          contrast: [0.9, 1.1]
+          saturation: [0.9, 1.1]
+          hue: [-0.05, 0.05]
+        - _target_: torchvision.transforms.RandomRotation
+          degrees: [-5, 5]
+
     - _target_: torchvision.transforms.ToTensor
