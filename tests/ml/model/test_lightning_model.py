@@ -4,45 +4,51 @@ import pytest
 import torch
 from torch import nn
 
-from comic_cover_generator.ml.model import GAN
+from comic_cover_generator.ml.model import GAN, Discriminator, Generator
 
 
-class MockedGen(nn.Module):
-    latent_dim: int = 10
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__()
-        self.features = nn.Linear(self.latent_dim, 1)
-        self.resizer = nn.Linear(1, 100)
-
-    def forward(self, x):
-        return self.resizer(self.features(x))
-
-
-class MockedDisc(nn.Module):
-    input_shape: int = 100
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__()
-        self.features = nn.Linear(self.input_shape, 2)
-        self.clf = nn.Linear(2, 1)
-
-    def forward(self, x):
-        return self.clf(self.features(x))
+def append_freeze_unfreeeze(mocked):
+    mocked.freeze = mock.MagicMock()
+    mocked.unfreeze = mock.MagicMock()
+    return mocked
 
 
 @pytest.fixture(scope="module")
 def model():
     with mock.patch("comic_cover_generator.ml.model.Generator") as gen_mock:
         with mock.patch("comic_cover_generator.ml.model.Discriminator") as disc_mock:
-            gen_mock.return_value = MockedGen()
-            disc_mock.return_value = MockedDisc()
+            gen_mock.return_value = mock.MagicMock(spec=Generator)
+            disc_mock.return_value = mock.MagicMock(spec=Discriminator)
             yield GAN(pretrained=False)
 
 
+@pytest.fixture(scope="module", params=[1, 5, 10])
+def batch(request):
+    return {"image": torch.rand(request.param, *Discriminator.input_shape)}
+
+
+def test_make_partially_trainable_correct_call(model: GAN):
+    model.make_partially_trainable()
+    model.generator.unfreeze.assert_called_once()
+    model.discriminator.unfreeze.assert_called_once()
+
+
 @torch.no_grad()
-def test_training_step_input_pass(model):
-    # pytest.set_trace()
-    batch = {"image": torch.rand(1, MockedDisc.input_shape)}
-    model.training_step(batch, 0, 0)
-    model.training_step(batch, 0, 1)
+@mock.patch("torch.Tensor.backward", lambda: None)
+@mock.patch(
+    "torch.nn.functional.binary_cross_entropy_with_logits",
+    lambda input, target, *args, **kwargs: torch.Tensor([1]),
+)
+@pytest.mark.parametrize("optimizer_idx", argvalues=[0, 1])
+def test_training_step_input_pass(model, batch, optimizer_idx):
+    model.generator.reset_mock()
+    model.discriminator.reset_mock()
+
+    model.training_step(batch, 0, optimizer_idx)
+
+    if optimizer_idx == 0:
+        model.generator.unfreeze.assert_called_once()
+        model.discriminator.freeze.assert_called_once()
+    else:
+        model.generator.freeze.assert_called_once()
+        model.discriminator.unfreeze.assert_called_once()

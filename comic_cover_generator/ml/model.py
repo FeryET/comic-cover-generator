@@ -7,10 +7,22 @@ import torch
 import torchvision
 from torch import nn
 
-from comic_cover_generator.typing import TypedDict
+from comic_cover_generator.typing import Protocol, TypedDict
 
 
-class Discriminator(nn.Module):
+class Freezeable(Protocol):
+    """Protocol for freezable nn.Modules."""
+
+    def freeze(self):
+        """Freezing method."""
+        ...
+
+    def unfreeze(self):
+        """Unfreezing method."""
+        ...
+
+
+class Discriminator(nn.Module, Freezeable):
     """Discriminator Model based on MobileNetV3."""
 
     input_shape: Tuple[int, int] = (224, 224)
@@ -36,8 +48,20 @@ class Discriminator(nn.Module):
         """
         return self.clf(self.features(x))
 
+    def freeze(self):
+        """Freeze the discriminator model."""
+        for p in self.parameters():
+            p.requires_grad = False
+        return self
 
-class Generator(nn.Module):
+    def unfreeze(self):
+        """Unfreeze the discriminator model."""
+        for p in self.parameters():
+            p.requires_grad = True
+        return self
+
+
+class Generator(nn.Module, Freezeable):
     """Generator model based on PGAN."""
 
     latent_dim: int = 512
@@ -78,6 +102,18 @@ class Generator(nn.Module):
             torch.Tensor:
         """
         return self.resizer(self.features(x))
+
+    def freeze(self):
+        """Freeze the generator model."""
+        for p in self.parameters():
+            p.requires_grad = False
+        return self
+
+    def unfreeze(self):
+        """Unfreeze the generator model."""
+        for p in self.parameters():
+            p.requires_grad = True
+        return self
 
 
 class OptimizerParams(TypedDict):
@@ -133,6 +169,11 @@ class GAN(pl.LightningModule):
 
         self.validation_z = torch.randn(8, self.generator.latent_dim)
 
+    def make_partially_trainable(self):
+        """Make some layers partially trainable in the model."""
+        self.generator.unfreeze()
+        self.discriminator.unfreeze()
+
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
         """Configure the optimizers of the model.
 
@@ -143,19 +184,6 @@ class GAN(pl.LightningModule):
             v["cls"](self.parameters(), **v["kwargs"])
             for _, v in self.optimizer_params.items()
         ]
-
-    def freeze_layers(self):
-        """Freezes some layers in the model."""
-        for p in self.generator.features.parameters():
-            p.requires_grad = False
-
-        for p in nn.ModuleList(
-            [
-                self.generator.features.toRGBLayers,
-                self.generator.features.scaleLayers[-2:],
-            ]
-        ).parameters():
-            p.requires_grad = True
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """Forward calls only the generator.
@@ -192,6 +220,10 @@ class GAN(pl.LightningModule):
 
         # train generator
         if optimizer_idx == 0:
+
+            self.generator.unfreeze()
+            self.discriminator.freeze()
+
             valid = torch.ones(imgs.size(0), 1, device=device)
             valid = valid.type_as(imgs)
             generator_loss = self.adversarial_loss(self.discriminator(self(z)), valid)
@@ -206,12 +238,14 @@ class GAN(pl.LightningModule):
 
         # train discriminator
         if optimizer_idx == 1:
+
+            self.generator.freeze()
+            self.discriminator.unfreeze()
+
             valid = torch.ones(imgs.size(0), 1, dtype=imgs.dtype, device=device)
             real_loss = self.adversarial_loss(self.discriminator(imgs), valid)
             fake = torch.zeros(imgs.size(0), 1, dtype=imgs.dtype, device=device)
-            fake_loss = self.adversarial_loss(
-                self.discriminator(self(z).detach()), fake
-            )
+            fake_loss = self.adversarial_loss(self.discriminator(self(z)), fake)
             discrimantor_loss = (real_loss + fake_loss) / 2
             tqdm_dict = {"discriminator_loss": discrimantor_loss.detach()}
             output = {

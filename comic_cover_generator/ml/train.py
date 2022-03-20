@@ -26,7 +26,7 @@ def train(cfg: DictConfig):
 
     # init model
     model = GAN(**config["model"])
-    model.freeze_layers()
+    model.make_partially_trainable()
 
     # init data
     dataset = CoverDataset(**config["dataset"])
