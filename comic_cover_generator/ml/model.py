@@ -8,6 +8,11 @@ import torchvision
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
+from comic_cover_generator.ml.loss import (
+    compute_gradient_penalty,
+    wgan_fake_loss,
+    wgan_real_loss,
+)
 from comic_cover_generator.typing import Protocol, TypedDict
 
 
@@ -125,30 +130,6 @@ class Generator(nn.Module, Freezeable):
         return self
 
 
-def wgan_fake_loss(input: torch.Tensor) -> torch.Tensor:
-    """Compute the Wasserstein loss for discriminator.
-
-    Args:
-        input (torch.Tensor): input tensor.
-
-    Returns:
-        torch.Tensor:
-    """
-    return torch.mean(input)
-
-
-def wgan_real_loss(input: torch.Tensor) -> torch.Tensor:
-    """Compute the Wasserstein loss for generator.
-
-    Args:
-        input (torch.Tensor): input tensor.
-
-    Returns:
-        torch.Tensor:
-    """
-    return -torch.mean(input)
-
-
 class OptimizerParams(TypedDict):
     """Optimizer parameters."""
 
@@ -165,6 +146,7 @@ class GAN(pl.LightningModule):
         optimizer_params: Dict[str, OptimizerParams] = None,
         pretrained: bool = True,
         batch_size: int = 1,
+        gradient_penalty_coef: float = 0.2,
     ) -> None:
         """Instantiate a GAN object.
 
@@ -174,11 +156,13 @@ class GAN(pl.LightningModule):
             batch_size (int, optional): Defaults to 1.
             discriminator_update_step (int, optional): Defaults to 3.
             discriminator_loss_threshold (float, optional): Defaults to 0.3.
+            gradient_penalty_coef (float, optional): Defaults to 0.2.
         """
         super().__init__()
 
         self.train_dataset = None
         self.batch_size = batch_size
+        self.gradient_penalty_coef = gradient_penalty_coef
 
         self.generator = Generator(pretrained=pretrained)
         self.discriminator = Discriminator()
@@ -203,13 +187,9 @@ class GAN(pl.LightningModule):
 
         self.real_loss_fn = wgan_real_loss
         self.fake_loss_fn = wgan_fake_loss
+        self.gradient_penalty_fn = compute_gradient_penalty
 
         self.validation_z = torch.randn(8, self.generator.latent_dim)
-
-    def make_partially_trainable(self):
-        """Make some layers partially trainable in the model."""
-        self.generator.unfreeze()
-        self.discriminator.unfreeze()
 
     def attach_train_dataset(self, train_dataset: Dataset):
         """Attach train dataset.
@@ -265,12 +245,6 @@ class GAN(pl.LightningModule):
 
         # train generator
         if optimizer_idx == 0:
-
-            self.generator.unfreeze()
-            self.discriminator.freeze()
-
-            valid = torch.ones(imgs.size(0), 1, device=device)
-            valid = valid.type_as(imgs)
             generator_loss = self.real_loss_fn(self.discriminator(self(z)))
             tqdm_dict = {"generator_loss": generator_loss.detach()}
             output = {
@@ -283,14 +257,19 @@ class GAN(pl.LightningModule):
 
         # train discriminator
         if optimizer_idx == 1:
+            generated_imgs = self(z).detach()
 
-            self.generator.freeze()
-            self.discriminator.unfreeze()
+            predr = self.discriminator(imgs)
+            predf = self.discriminator(generated_imgs)
 
-            valid = torch.ones(imgs.size(0), 1, dtype=imgs.dtype, device=device)
-            real_loss = self.real_loss_fn(self.discriminator(imgs))
-            fake_loss = self.fake_loss_fn(self.discriminator(self(z)))
-            discrimantor_loss = real_loss + fake_loss
+            gp = self.gradient_penalty_fn(self.discriminator, imgs, generated_imgs)
+
+            discrimantor_loss = (
+                self.fake_loss_fn(predf)
+                + self.real_loss_fn(predr)
+                + self.gradient_penalty_coef * gp
+            )
+
             tqdm_dict = {"discriminator_loss": discrimantor_loss.detach()}
             output = {
                 "loss": discrimantor_loss,

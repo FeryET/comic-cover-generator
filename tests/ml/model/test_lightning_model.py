@@ -17,11 +17,17 @@ def append_freeze_unfreeeze(mocked):
 def model():
     with mock.patch("comic_cover_generator.ml.model.Generator") as gen_mock:
         with mock.patch("comic_cover_generator.ml.model.Discriminator") as disc_mock:
-            gen_mock.return_value = mock.MagicMock(spec=Generator)
-            disc_mock.return_value = mock.MagicMock(spec=Discriminator)
             gan = GAN(pretrained=False)
-            gan.fake_loss_fn = gan.real_loss_fn = lambda x: torch.ones(1, 1)
+            gan.fake_loss_fn = mock.MagicMock(return_value=torch.ones(1, 1))
+            gan.real_loss_fn = mock.MagicMock(return_value=torch.ones(1, 1))
+            gan.gradient_penalty_fn = mock.MagicMock(return_value=torch.rand(1))
             yield gan
+
+
+@pytest.fixture(scope="function")
+def reset_model_state(model):
+    for m in [model.fake_loss_fn, model.real_loss_fn, model.gradient_penalty_fn]:
+        m.reset_mock()
 
 
 @pytest.fixture(scope="module", params=[1, 5, 10])
@@ -29,24 +35,17 @@ def batch(request):
     return {"image": torch.rand(request.param, *Discriminator.input_shape)}
 
 
-def test_make_partially_trainable_correct_call(model: GAN):
-    model.make_partially_trainable()
-    model.generator.unfreeze.assert_called_once()
-    model.discriminator.unfreeze.assert_called_once()
-
-
 @torch.no_grad()
 @mock.patch("torch.Tensor.backward", lambda: None)
 @pytest.mark.parametrize("optimizer_idx", argvalues=[0, 1])
-def test_training_step_input_pass(model, batch, optimizer_idx):
-    model.generator.reset_mock()
-    model.discriminator.reset_mock()
-
+def test_training_step_input_pass(model, batch, optimizer_idx, reset_model_state):
     model.training_step(batch, 0, optimizer_idx)
 
     if optimizer_idx == 0:
-        model.generator.unfreeze.assert_called_once()
-        model.discriminator.freeze.assert_called_once()
+        model.real_loss_fn.assert_called_once()
+        model.fake_loss_fn.assert_not_called()
+        model.gradient_penalty_fn.assert_not_called()
     else:
-        model.generator.freeze.assert_called_once()
-        model.discriminator.unfreeze.assert_called_once()
+        model.real_loss_fn.assert_called_once()
+        model.fake_loss_fn.assert_called_once()
+        model.gradient_penalty_fn.assert_called_once()

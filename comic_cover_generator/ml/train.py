@@ -28,7 +28,6 @@ def train(cfg: DictConfig):
 
     # init model
     model = GAN(**config["model"])
-    model.make_partially_trainable()
     model.attach_train_dataset(dataset)
 
     # init trainer
