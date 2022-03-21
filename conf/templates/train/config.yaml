@@ -18,11 +18,6 @@ trainer:
       dirpath: "${hydra:runtime.cwd}/checkpoints/"
       filename: "{epoch}-{step}-{generator_loss:.2f}-{discriminator_loss:.2f}"
       monitor: "generator_loss"
-      every_n_train_steps: 10000
+      every_n_train_steps: 1000
       save_top_k: 1
       save_weights_only: True
-    - _target_: pytorch_lightning.callbacks.EarlyStopping
-      monitor: "generator_loss"
-      patience: 3
-      verbose: True
-      mode: min

@@ -65,7 +65,7 @@ class CoverDataset(Dataset):
             image_size (Tuple[int, int]): what should the image size be.
 
         Returns:
-            h5py.Dataset: _description_
+            h5py.Dataset: The returned dataset.
         """
         h5_file = h5py.File(h5_file_path, "a")
         if (

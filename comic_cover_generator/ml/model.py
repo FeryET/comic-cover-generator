@@ -41,7 +41,10 @@ class Discriminator(nn.Module, Freezeable):
             nn.AdaptiveMaxPool2d((1, 1)),
             nn.Flatten(),
         )
-        self.clf = nn.Linear(256, 1)
+        self.clf = nn.Sequential(
+            nn.Linear(256, 1),
+            nn.Sigmoid(),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -122,6 +125,30 @@ class Generator(nn.Module, Freezeable):
         return self
 
 
+def wgan_fake_loss(input: torch.Tensor) -> torch.Tensor:
+    """Compute the Wasserstein loss for discriminator.
+
+    Args:
+        input (torch.Tensor): input tensor.
+
+    Returns:
+        torch.Tensor:
+    """
+    return torch.mean(input)
+
+
+def wgan_real_loss(input: torch.Tensor) -> torch.Tensor:
+    """Compute the Wasserstein loss for generator.
+
+    Args:
+        input (torch.Tensor): input tensor.
+
+    Returns:
+        torch.Tensor:
+    """
+    return -torch.mean(input)
+
+
 class OptimizerParams(TypedDict):
     """Optimizer parameters."""
 
@@ -138,8 +165,6 @@ class GAN(pl.LightningModule):
         optimizer_params: Dict[str, OptimizerParams] = None,
         pretrained: bool = True,
         batch_size: int = 1,
-        discriminator_loss_threshold: float = 0.3,
-        discriminator_update_step: int = 3,
     ) -> None:
         """Instantiate a GAN object.
 
@@ -154,8 +179,6 @@ class GAN(pl.LightningModule):
 
         self.train_dataset = None
         self.batch_size = batch_size
-        self.discriminator_update_step = discriminator_update_step
-        self.discriminator_loss_threshold = discriminator_loss_threshold
 
         self.generator = Generator(pretrained=pretrained)
         self.discriminator = Discriminator()
@@ -178,7 +201,8 @@ class GAN(pl.LightningModule):
             )
         self.optimizer_params = optimizer_params
 
-        self.adversarial_loss = nn.BCEWithLogitsLoss()
+        self.real_loss_fn = wgan_real_loss
+        self.fake_loss_fn = wgan_fake_loss
 
         self.validation_z = torch.randn(8, self.generator.latent_dim)
 
@@ -247,7 +271,7 @@ class GAN(pl.LightningModule):
 
             valid = torch.ones(imgs.size(0), 1, device=device)
             valid = valid.type_as(imgs)
-            generator_loss = self.adversarial_loss(self.discriminator(self(z)), valid)
+            generator_loss = self.real_loss_fn(self.discriminator(self(z)))
             tqdm_dict = {"generator_loss": generator_loss.detach()}
             output = {
                 "loss": generator_loss,
@@ -264,10 +288,9 @@ class GAN(pl.LightningModule):
             self.discriminator.unfreeze()
 
             valid = torch.ones(imgs.size(0), 1, dtype=imgs.dtype, device=device)
-            real_loss = self.adversarial_loss(self.discriminator(imgs), valid)
-            fake = torch.zeros(imgs.size(0), 1, dtype=imgs.dtype, device=device)
-            fake_loss = self.adversarial_loss(self.discriminator(self(z)), fake)
-            discrimantor_loss = (real_loss + fake_loss) / 2
+            real_loss = self.real_loss_fn(self.discriminator(imgs))
+            fake_loss = self.fake_loss_fn(self.discriminator(self(z)))
+            discrimantor_loss = real_loss + fake_loss
             tqdm_dict = {"discriminator_loss": discrimantor_loss.detach()}
             output = {
                 "loss": discrimantor_loss,
@@ -277,13 +300,7 @@ class GAN(pl.LightningModule):
             self.log(
                 "discriminator_loss", tqdm_dict["discriminator_loss"], prog_bar=True
             )
-            if (
-                batch_idx % self.discriminator_update_step != 0
-                or discrimantor_loss < self.discriminator_loss_threshold
-            ):
-                return None
-            else:
-                return output
+            return output
 
     def on_epoch_end(self):
         """Generate an output on epoch end callback."""
@@ -307,3 +324,27 @@ class GAN(pl.LightningModule):
             batch_size=self.batch_size,
             shuffle=True,
         )
+
+    def configure_gradient_clipping(
+        self,
+        optimizer: torch.optim.Optimizer,
+        optimizer_idx: int,
+        gradient_clip_val: float = None,
+        gradient_clip_algorithm: str = None,
+    ):
+        """Configure gradient clipping for discriminator.
+
+        Args:
+            optimizer (torch.optim.Optimizer): optimizer instance.
+            optimizer_idx (int): optimizer index.
+            gradient_clip_val (float, optional): Defaults to None.
+            gradient_clip_algorithm (str, optional): Defaults to None.
+        """
+        if optimizer_idx == 1:
+            self.clip_gradients(
+                optimizer,
+                gradient_clip_val=gradient_clip_val,
+                gradient_clip_algorithm=gradient_clip_algorithm,
+            )
+        else:
+            pass

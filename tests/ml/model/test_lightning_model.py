@@ -19,7 +19,9 @@ def model():
         with mock.patch("comic_cover_generator.ml.model.Discriminator") as disc_mock:
             gen_mock.return_value = mock.MagicMock(spec=Generator)
             disc_mock.return_value = mock.MagicMock(spec=Discriminator)
-            yield GAN(pretrained=False)
+            gan = GAN(pretrained=False)
+            gan.fake_loss_fn = gan.real_loss_fn = lambda x: torch.ones(1, 1)
+            yield gan
 
 
 @pytest.fixture(scope="module", params=[1, 5, 10])
@@ -35,10 +37,6 @@ def test_make_partially_trainable_correct_call(model: GAN):
 
 @torch.no_grad()
 @mock.patch("torch.Tensor.backward", lambda: None)
-@mock.patch(
-    "torch.nn.functional.binary_cross_entropy_with_logits",
-    lambda input, target, *args, **kwargs: torch.Tensor([1]),
-)
 @pytest.mark.parametrize("optimizer_idx", argvalues=[0, 1])
 def test_training_step_input_pass(model, batch, optimizer_idx):
     model.generator.reset_mock()
