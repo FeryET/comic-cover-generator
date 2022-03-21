@@ -46,10 +46,7 @@ class Discriminator(nn.Module, Freezeable):
             nn.AdaptiveMaxPool2d((1, 1)),
             nn.Flatten(),
         )
-        self.clf = nn.Sequential(
-            nn.Linear(256, 1),
-            nn.Sigmoid(),
-        )
+        self.clf = nn.Linear(256, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.

@@ -36,7 +36,7 @@ def test_discriminator_overfitting(
     target = torch.ones(2, 1, dtype=torch.float32)
     for _ in range(10):
         opt.zero_grad()
-        output = disc(batch)
+        output = F.sigmoid(disc(batch))
         loss = F.binary_cross_entropy(output, target)
         loss.backward()
         opt.step()
