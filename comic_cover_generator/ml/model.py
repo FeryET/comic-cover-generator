@@ -7,6 +7,7 @@ import torch
 import torchvision
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
+from torchmetrics.image.fid import FrechetInceptionDistance
 
 from comic_cover_generator.ml.loss import (
     critic_loss_fn,
@@ -195,7 +196,6 @@ class GAN(pl.LightningModule):
             gradient_penalty_coef (float, optional): Defaults to 0.2.
         """
         super().__init__()
-        from torchmetrics.image.fid import FrechetInceptionDistance
 
         self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
 

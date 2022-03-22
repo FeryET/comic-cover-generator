@@ -27,6 +27,8 @@ def model():
     ), mock.patch(
         "comic_cover_generator.ml.model.generator_loss_fn",
         result_func,
+    ), mock.patch(
+        "comic_cover_generator.ml.model.FrechetInceptionDistance",
     ):
         gan = GAN()
         yield gan
