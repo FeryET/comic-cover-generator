@@ -29,6 +29,43 @@ class Freezeable(Protocol):
         ...
 
 
+class ResNetBlock(nn.Module):
+    """Resnet block module."""
+
+    def __init__(self, channels: int, p_dropout: float = 0.2) -> None:
+        """Initialize a resnet block.
+
+        Args:
+            channels (int): channels in resnent block.
+            p_dropout (float, optional): Defaults to 0.2.
+        """
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                channels, channels // 4, kernel_size=3, padding=1, stride=1, bias=False
+            ),
+            nn.InstanceNorm2d(channels // 4, affine=True),
+            nn.ReLU(),
+            nn.Conv2d(
+                channels // 4, channels, kernel_size=1, padding=0, stride=1, bias=False
+            ),
+        )
+
+        self.relu = nn.Sequential(nn.Dropout2d(p=p_dropout), nn.ReLU())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward of resnet block.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        identity = x
+        return self.relu(identity + self.block(x))
+
+
 class Critic(nn.Module, Freezeable):
     """critic Model based on MobileNetV3."""
 
@@ -39,7 +76,7 @@ class Critic(nn.Module, Freezeable):
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, 7, stride=4, padding=0, bias=False),
-            nn.InstanceNorm2d(64),
+            nn.InstanceNorm2d(64, affine=True),
             ResNetBlock(64, p_dropout=0.2),
             ResNetBlock(64, p_dropout=0.2),
             ResNetBlock(64, p_dropout=0.2),
@@ -78,43 +115,6 @@ class Critic(nn.Module, Freezeable):
         return self
 
 
-class ResNetBlock(nn.Module):
-    """Resnet block module."""
-
-    def __init__(self, channels: int, p_dropout: float = 0.2) -> None:
-        """Initialize a resnet block.
-
-        Args:
-            channels (int): channels in resnent block.
-            p_dropout (float, optional): Defaults to 0.2.
-        """
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(
-                channels, channels // 4, kernel_size=3, padding=1, stride=1, bias=False
-            ),
-            nn.InstanceNorm2d(channels // 4),
-            nn.ReLU(),
-            nn.Conv2d(
-                channels // 4, channels, kernel_size=1, padding=0, stride=1, bias=False
-            ),
-        )
-
-        self.relu = nn.Sequential(nn.Dropout2d(p=p_dropout), nn.ReLU())
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward of resnet block.
-
-        Args:
-            x (torch.Tensor):
-
-        Returns:
-            torch.Tensor:
-        """
-        identity = x
-        return self.relu(identity + self.block(x))
-
-
 class Generator(nn.Module, Freezeable):
     """Generator model based on PGAN."""
 
@@ -144,8 +144,10 @@ class Generator(nn.Module, Freezeable):
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
-            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=4, padding=0),
-            nn.Conv2d(128, 3, kernel_size=5, stride=1, padding=2),
+            nn.ConvTranspose2d(512, 512, kernel_size=4, stride=4, padding=0),
+            nn.InstanceNorm2d(512, affine=True),
+            nn.ReLU(),
+            nn.Conv2d(512, 3, kernel_size=5, stride=1, padding=2),
         )
         self.normalizer = nn.Hardtanh()
 
@@ -201,7 +203,7 @@ class GAN(pl.LightningModule):
         """
         super().__init__()
 
-        self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
+        self.fid = FrechetInceptionDistance(feature=192, compute_on_step=False)
 
         self.train_dataset = None
         self.batch_size = batch_size
@@ -292,8 +294,13 @@ class GAN(pl.LightningModule):
 
         # train generator
         if optimizer_idx == 0:
+
             self.critic.freeze()
+            self.critic.eval()
+
             self.generator.unfreeze()
+            self.generator.train()
+
             fake = self.generator(z)
             critic_gen_fake = self.critic(fake).reshape(-1)
             loss_gen = generator_loss_fn(critic_gen_fake)
@@ -312,8 +319,13 @@ class GAN(pl.LightningModule):
 
         # train discriminator
         if optimizer_idx == 1:
+
             self.critic.unfreeze()
+            self.critic.train()
+
             self.generator.freeze()
+            self.generator.eval()
+
             fakes = self.generator(z)
             critic_score_fakes = self.critic(fakes)
             critic_score_reals = self.critic(reals)
@@ -344,12 +356,15 @@ class GAN(pl.LightningModule):
         Returns:
             None:
         """
+        self.eval()
+
         w = next(filter(lambda x: x.requires_grad, self.parameters()))
         z = self.validation_z.type_as(w).to(w.device)
 
         # log sampled images
         with torch.no_grad():
             sample_imgs = self(z)
+
         grid = torchvision.utils.make_grid(sample_imgs, nrow=4)
 
         self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
