@@ -6,6 +6,7 @@ from typing import Sequence, Tuple
 import h5py
 import numpy as np
 import pandas as pd
+import torch
 from PIL import Image, ImageOps
 from torch import Tensor
 from torch.utils.data import Dataset
@@ -43,6 +44,21 @@ def _resize_image_to_shape(
     image: Image.Image, image_size: Tuple[int, int]
 ) -> Image.Image:
     return image.resize(image_size[::-1], resample=Image.NEAREST)
+
+
+class MapToMinusOneAndOne:
+    """Transforms which maps a tensor from [0,1] to [-1, 1]."""
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the transform.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Mapped tensor.
+        """
+        return (2 * x) - 1
 
 
 class CoverDatasetItem(TypedDict):

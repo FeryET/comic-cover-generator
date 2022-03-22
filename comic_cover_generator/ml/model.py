@@ -147,7 +147,7 @@ class Generator(nn.Module, Freezeable):
             nn.ConvTranspose2d(512, 128, kernel_size=4, stride=4, padding=0),
             nn.Conv2d(128, 3, kernel_size=5, stride=1, padding=2),
         )
-        self.normalizer = nn.Sigmoid()
+        self.normalizer = nn.Hardtanh()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -200,6 +200,7 @@ class GAN(pl.LightningModule):
             gradient_penalty_coef (float, optional): Defaults to 0.2.
         """
         super().__init__()
+        self._epoch = 0
 
         self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
 
@@ -229,7 +230,7 @@ class GAN(pl.LightningModule):
             )
         self.optimizer_params = optimizer_params
 
-        self.validation_z = torch.randn(8, self.generator.latent_dim)
+        self.validation_z = torch.randn(16, self.generator.latent_dim)
 
     def attach_train_dataset(self, train_dataset: Dataset):
         """Attach train dataset.
@@ -279,7 +280,7 @@ class GAN(pl.LightningModule):
         """
 
         def to_uint8(x: torch.Tensor):
-            return (x * 256.0).type(torch.uint8)
+            return (x * 255.0).type(torch.uint8)
 
         reals: torch.Tensor = batch["image"]
 
@@ -339,20 +340,31 @@ class GAN(pl.LightningModule):
         """Generate an output on epoch end callback.
 
         Args:
-            outputs (Any): _description_
+            outputs (Any):
+
+        Returns:
+            None:
         """
         w = next(filter(lambda x: x.requires_grad, self.parameters()))
         z = self.validation_z.type_as(w).to(w.device)
 
         # log sampled images
-        sample_imgs = self(z)
-        grid = torchvision.utils.make_grid(sample_imgs, nrow=4)
-        self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
+        with torch.no_grad():
+            sample_imgs = self(z)
+        grid = (
+            torchvision.utils.make_grid(sample_imgs, nrow=4)
+            .detach()
+            .cpu()
+            .permute(1, 2, 0)
+            .numpy()
+        )
+        self.logger.experiment.log_image(grid, f"generated/gen_{self._epoch}.jpg")
 
         # compute fid
         fid = self.fid.compute()
         self.log("fid", fid, prog_bar=True)
         self.fid.reset()
+        self._epoch += 1
 
         return super().training_epoch_end(outputs)
 

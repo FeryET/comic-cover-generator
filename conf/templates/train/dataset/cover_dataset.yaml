@@ -25,3 +25,4 @@ image_transforms:
           degrees: [-5, 5]
 
     - _target_: torchvision.transforms.ToTensor
+    - _target_: comic_cover_generator.ml.dataset.MapToMinusOneAndOne
