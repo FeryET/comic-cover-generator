@@ -43,10 +43,11 @@ class Critic(nn.Module, Freezeable):
             nn.InstanceNorm2d(128, affine=True),
             nn.Conv2d(128, 256, 1, 1, 0, bias=False),
             nn.InstanceNorm2d(256, affine=True),
-            nn.AdaptiveMaxPool2d((1, 1)),
-            nn.Flatten(),
+            nn.AdaptiveMaxPool2d((2, 2)),
         )
-        self.clf = nn.Linear(256, 1)
+        self.clf = nn.Sequential(
+            nn.Conv2d(256, 1, kernel_size=2, padding=0, stride=2), nn.Flatten()
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -233,6 +234,7 @@ class GAN(pl.LightningModule):
 
         # train generator
         if optimizer_idx == 0:
+            self.critic.freeze()
             gen_fake = self.critic(self.generator(z)).reshape(-1)
             loss_gen = generator_loss_fn(gen_fake)
             tqdm_dict = {"generator_loss": loss_gen.detach()}
@@ -246,8 +248,9 @@ class GAN(pl.LightningModule):
 
         # train discriminator
         if optimizer_idx == 1:
+            self.critic.unfreeze()
             fakes = self.generator(z)
-            critic_score_fakes = self.critic(fakes)
+            critic_score_fakes = self.critic(fakes.detach())
             critic_score_reals = self.critic(reals)
             gp = gradient_penalty(self.critic, reals, fakes)
             loss_critic = critic_loss_fn(
