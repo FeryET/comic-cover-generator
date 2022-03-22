@@ -144,12 +144,15 @@ class Generator(nn.Module, Freezeable):
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
-            nn.ConvTranspose2d(512, 512, kernel_size=4, stride=4, padding=0),
-            nn.InstanceNorm2d(512, affine=True),
+            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=4, padding=0),
+            nn.InstanceNorm2d(128, affine=True),
             nn.ReLU(),
-            nn.Conv2d(512, 3, kernel_size=5, stride=1, padding=2),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.InstanceNorm2d(128, affine=True),
+            nn.ReLU(),
+            nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1),
         )
-        self.normalizer = nn.Hardtanh()
+        self.normalizer = nn.Tanh()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.

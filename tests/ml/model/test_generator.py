@@ -11,7 +11,7 @@ class MockedPGAN:
         pass
 
     def getNetG(self):
-        def features(x: torch.Tensor, feature_size=(256, 256)):
+        def features(x: torch.Tensor, feature_size=Generator.output_shape):
             if x.size()[-1] != Generator.latent_dim:
                 raise RuntimeError("Mismatch of input shape.")
             return torch.rand(len(x), 3, *feature_size)
