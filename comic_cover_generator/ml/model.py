@@ -38,17 +38,21 @@ class Critic(nn.Module, Freezeable):
         """Initialize an instance."""
         super().__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(3, 32, 5, 4, 2, bias=False),
-            nn.InstanceNorm2d(32, affine=True),
-            nn.Conv2d(32, 128, 3, 4, 1, bias=False),
-            nn.InstanceNorm2d(128, affine=True),
-            nn.Conv2d(128, 256, 1, 1, 0, bias=False),
-            nn.InstanceNorm2d(256, affine=True),
-            nn.AdaptiveMaxPool2d((2, 2)),
+            nn.Conv2d(3, 64, 7, stride=4, padding=0, bias=False),
+            nn.InstanceNorm2d(64),
+            ResNetBlock(64, p_dropout=0.2),
+            ResNetBlock(64, p_dropout=0.2),
+            ResNetBlock(64, p_dropout=0.2),
+            nn.Conv2d(64, 128, 5, stride=4, padding=0, bias=False),
+            ResNetBlock(128, p_dropout=0.2),
+            ResNetBlock(128, p_dropout=0.2),
+            ResNetBlock(128, p_dropout=0.2),
+            nn.Conv2d(128, 256, 3, stride=4, padding=0, bias=False),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
         )
-        self.clf = nn.Sequential(
-            nn.Conv2d(256, 1, kernel_size=2, padding=0, stride=2), nn.Flatten()
-        )
+
+        self.clf = nn.Linear(256, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
