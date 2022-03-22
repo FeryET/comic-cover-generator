@@ -3,7 +3,7 @@ from unittest import mock
 import pytest
 import torch
 
-from comic_cover_generator.ml.model import Discriminator, Generator
+from comic_cover_generator.ml.model import Critic, Generator
 
 
 class MockedPGAN:
@@ -27,5 +27,5 @@ def gen():
 
 
 @torch.no_grad()
-def test_generator_resizer_shape_match_discriminator_input_shape(gen):
-    assert gen(torch.rand(1, gen.latent_dim)).size()[-2:] == Discriminator.input_shape
+def test_generator_resizer_shape_match_critic_input_shape(gen):
+    assert gen(torch.rand(1, gen.latent_dim)).size()[-2:] == Critic.input_shape

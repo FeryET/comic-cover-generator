@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch import nn
 
-from comic_cover_generator.ml.model import GAN, Discriminator, Generator
+from comic_cover_generator.ml.model import GAN, Critic, Generator
 
 
 def append_freeze_unfreeeze(mocked):
@@ -15,37 +15,30 @@ def append_freeze_unfreeeze(mocked):
 
 @pytest.fixture(scope="module")
 def model():
-    with mock.patch("comic_cover_generator.ml.model.Generator") as gen_mock:
-        with mock.patch("comic_cover_generator.ml.model.Discriminator") as disc_mock:
-            gan = GAN(pretrained=False)
-            gan.fake_loss_fn = mock.MagicMock(return_value=torch.ones(1, 1))
-            gan.real_loss_fn = mock.MagicMock(return_value=torch.ones(1, 1))
-            gan.gradient_penalty_fn = mock.MagicMock(return_value=torch.rand(1))
-            yield gan
-
-
-@pytest.fixture(scope="function")
-def reset_model_state(model):
-    for m in [model.fake_loss_fn, model.real_loss_fn, model.gradient_penalty_fn]:
-        m.reset_mock()
+    result_func = lambda *args, **kwargs: torch.Tensor([1.0])  # noqa:
+    with mock.patch("comic_cover_generator.ml.model.Generator"), mock.patch(
+        "comic_cover_generator.ml.model.Critic"
+    ), mock.patch(
+        "comic_cover_generator.ml.model.gradient_penalty",
+        result_func,
+    ), mock.patch(
+        "comic_cover_generator.ml.model.critic_loss_fn",
+        result_func,
+    ), mock.patch(
+        "comic_cover_generator.ml.model.generator_loss_fn",
+        result_func,
+    ):
+        gan = GAN(pretrained=False)
+        yield gan
 
 
 @pytest.fixture(scope="module", params=[1, 5, 10])
 def batch(request):
-    return {"image": torch.rand(request.param, *Discriminator.input_shape)}
+    return {"image": torch.rand(request.param, *Critic.input_shape)}
 
 
 @torch.no_grad()
 @mock.patch("torch.Tensor.backward", lambda: None)
 @pytest.mark.parametrize("optimizer_idx", argvalues=[0, 1])
-def test_training_step_input_pass(model, batch, optimizer_idx, reset_model_state):
+def test_training_step_input_pass(mocker, model, batch, optimizer_idx):
     model.training_step(batch, 0, optimizer_idx)
-
-    if optimizer_idx == 0:
-        model.real_loss_fn.assert_called_once()
-        model.fake_loss_fn.assert_not_called()
-        model.gradient_penalty_fn.assert_not_called()
-    else:
-        model.real_loss_fn.assert_called_once()
-        model.fake_loss_fn.assert_called_once()
-        model.gradient_penalty_fn.assert_called_once()

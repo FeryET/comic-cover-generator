@@ -4,12 +4,12 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from comic_cover_generator.ml.model import Discriminator, wgan_fake_loss
+from comic_cover_generator.ml.model import Critic
 
 
 @pytest.fixture(scope="module")
 def disc():
-    return Discriminator()
+    return Critic()
 
 
 @pytest.fixture(scope="module")
@@ -18,19 +18,17 @@ def disc_input(disc):
 
 
 @torch.no_grad()
-def test_discriminator_forward_pass(disc, disc_input):
+def test_critic_forward_pass(disc, disc_input):
     disc(disc_input)
 
 
 @torch.no_grad()
-def test_discriminator_output_shape(disc: Discriminator, disc_input):
+def test_critic_output_shape(disc: Critic, disc_input):
     assert disc(disc_input).size()[-1] == 1
 
 
 @pytest.mark.training
-def test_discriminator_overfitting(
-    disc: Discriminator, torch_random_generator: torch.Generator
-):
+def test_critic_overfitting(disc: Critic, torch_random_generator: torch.Generator):
     batch = torch.rand(2, 3, *disc.input_shape, generator=torch_random_generator)
     opt = torch.optim.AdamW(params=disc.parameters())
     target = torch.ones(2, 1, dtype=torch.float32)

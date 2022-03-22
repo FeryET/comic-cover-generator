@@ -9,9 +9,9 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from comic_cover_generator.ml.loss import (
-    compute_gradient_penalty,
-    wgan_fake_loss,
-    wgan_real_loss,
+    critic_loss_fn,
+    generator_loss_fn,
+    gradient_penalty,
 )
 from comic_cover_generator.typing import Protocol, TypedDict
 
@@ -28,8 +28,8 @@ class Freezeable(Protocol):
         ...
 
 
-class Discriminator(nn.Module, Freezeable):
-    """Discriminator Model based on MobileNetV3."""
+class Critic(nn.Module, Freezeable):
+    """critic Model based on MobileNetV3."""
 
     input_shape: Tuple[int, int] = (224, 224)
 
@@ -38,11 +38,11 @@ class Discriminator(nn.Module, Freezeable):
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv2d(3, 32, 5, 4, 2, bias=False),
-            nn.BatchNorm2d(32),
+            nn.InstanceNorm2d(32, affine=True),
             nn.Conv2d(32, 128, 3, 4, 1, bias=False),
-            nn.BatchNorm2d(128),
+            nn.InstanceNorm2d(128, affine=True),
             nn.Conv2d(128, 256, 1, 1, 0, bias=False),
-            nn.BatchNorm2d(256),
+            nn.InstanceNorm2d(256, affine=True),
             nn.AdaptiveMaxPool2d((1, 1)),
             nn.Flatten(),
         )
@@ -60,13 +60,13 @@ class Discriminator(nn.Module, Freezeable):
         return self.clf(self.features(x))
 
     def freeze(self):
-        """Freeze the discriminator model."""
+        """Freeze the critic model."""
         for p in self.parameters():
             p.requires_grad = False
         return self
 
     def unfreeze(self):
-        """Unfreeze the discriminator model."""
+        """Unfreeze the critic model."""
         for p in self.parameters():
             p.requires_grad = True
         return self
@@ -151,8 +151,8 @@ class GAN(pl.LightningModule):
             optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
             pretrained (bool, optional): Defaults to True.
             batch_size (int, optional): Defaults to 1.
-            discriminator_update_step (int, optional): Defaults to 3.
-            discriminator_loss_threshold (float, optional): Defaults to 0.3.
+            critic_update_step (int, optional): Defaults to 3.
+            critic_loss_threshold (float, optional): Defaults to 0.3.
             gradient_penalty_coef (float, optional): Defaults to 0.2.
         """
         super().__init__()
@@ -162,7 +162,7 @@ class GAN(pl.LightningModule):
         self.gradient_penalty_coef = gradient_penalty_coef
 
         self.generator = Generator(pretrained=pretrained)
-        self.discriminator = Discriminator()
+        self.critic = Critic()
 
         self.save_hyperparameters()
 
@@ -173,18 +173,15 @@ class GAN(pl.LightningModule):
                     "lr": 3e-4,
                     "weight_decay": 0.01,
                 },
+                "n_repeated_updates": 1,
             }
             optimizer_params = OrderedDict(
                 {
                     "generator": default_params,
-                    "discriminator": default_params,
+                    "critic": default_params,
                 }
             )
         self.optimizer_params = optimizer_params
-
-        self.real_loss_fn = wgan_real_loss
-        self.fake_loss_fn = wgan_fake_loss
-        self.gradient_penalty_fn = compute_gradient_penalty
 
         self.validation_z = torch.randn(8, self.generator.latent_dim)
 
@@ -203,7 +200,10 @@ class GAN(pl.LightningModule):
             List[torch.optim.Optimizer]:
         """
         return [
-            v["cls"](self.parameters(), **v["kwargs"])
+            {
+                "optimizer": v["cls"](self.parameters(), **v["kwargs"]),
+                "frequency": v["n_repeated_updates"],
+            }
             for _, v in self.optimizer_params.items()
         ]
 
@@ -231,21 +231,22 @@ class GAN(pl.LightningModule):
         Returns:
             Dict[str, Any]: The output of the training step.
         """
-        imgs: torch.Tensor = batch["image"]
+        reals: torch.Tensor = batch["image"]
 
-        device = imgs.device
+        device = reals.device
 
         # sample noise
         z = torch.randn(
-            imgs.shape[0], self.generator.latent_dim, dtype=imgs.dtype, device=device
+            reals.shape[0], self.generator.latent_dim, dtype=reals.dtype, device=device
         )
 
         # train generator
         if optimizer_idx == 0:
-            generator_loss = self.real_loss_fn(self.discriminator(self(z)))
-            tqdm_dict = {"generator_loss": generator_loss.detach()}
+            gen_fake = self.critic(self.generator(z)).reshape(-1)
+            loss_gen = generator_loss_fn(gen_fake)
+            tqdm_dict = {"generator_loss": loss_gen.detach()}
             output = {
-                "loss": generator_loss,
+                "loss": loss_gen,
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
@@ -254,27 +255,24 @@ class GAN(pl.LightningModule):
 
         # train discriminator
         if optimizer_idx == 1:
-            generated_imgs = self(z).detach()
-
-            predr = self.discriminator(imgs)
-            predf = self.discriminator(generated_imgs)
-
-            gp = self.gradient_penalty_fn(self.discriminator, imgs, generated_imgs)
-
-            discrimantor_loss = (
-                self.fake_loss_fn(predf)
-                + self.real_loss_fn(predr)
-                + self.gradient_penalty_coef * gp
+            fakes = self.generator(z)
+            critic_score_fakes = self.critic(fakes)
+            critic_score_reals = self.critic(reals)
+            gp = gradient_penalty(self.critic, reals, fakes)
+            loss_critic = critic_loss_fn(
+                critic_score_fakes, critic_score_reals, gp, self.gradient_penalty_coef
             )
 
-            tqdm_dict = {"discriminator_loss": discrimantor_loss.detach()}
+            tqdm_dict = {"critic_loss": loss_critic.detach()}
             output = {
-                "loss": discrimantor_loss,
+                "loss": loss_critic,
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
             self.log(
-                "discriminator_loss", tqdm_dict["discriminator_loss"], prog_bar=True
+                "critic_loss",
+                tqdm_dict["critic_loss"],
+                prog_bar=True,
             )
             return output
 
@@ -286,7 +284,7 @@ class GAN(pl.LightningModule):
 
         # log sampled images
         sample_imgs = self(z)
-        grid = torchvision.utils.make_grid(sample_imgs)
+        grid = torchvision.utils.make_grid(sample_imgs, nrow=4)
         self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
 
     def train_dataloader(self) -> DataLoader:
@@ -300,27 +298,3 @@ class GAN(pl.LightningModule):
             batch_size=self.batch_size,
             shuffle=True,
         )
-
-    def configure_gradient_clipping(
-        self,
-        optimizer: torch.optim.Optimizer,
-        optimizer_idx: int,
-        gradient_clip_val: float = None,
-        gradient_clip_algorithm: str = None,
-    ):
-        """Configure gradient clipping for discriminator.
-
-        Args:
-            optimizer (torch.optim.Optimizer): optimizer instance.
-            optimizer_idx (int): optimizer index.
-            gradient_clip_val (float, optional): Defaults to None.
-            gradient_clip_algorithm (str, optional): Defaults to None.
-        """
-        if optimizer_idx == 1:
-            self.clip_gradients(
-                optimizer,
-                gradient_clip_val=gradient_clip_val,
-                gradient_clip_algorithm=gradient_clip_algorithm,
-            )
-        else:
-            pass
