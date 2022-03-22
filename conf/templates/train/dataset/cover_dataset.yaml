@@ -2,12 +2,12 @@ metadata_csv: "${hydra:runtime.cwd}/data/dev_subset/sampled_dataset_seed_42_popu
 images_folder: "${hydra:runtime.cwd}/data/dev_subset/image/"
 preload_images: True,
 preload_path: "${hydra:runtime.cwd}/cache/"
-image_size: [284, 284]
+image_size: [184, 128]
 image_transforms:
   _target_: torchvision.transforms.Compose
   transforms:
     - _target_: torchvision.transforms.RandomCrop
-      size: [256, 256]
+      size: [128, 128]
     - _target_: torchvision.transforms.RandomApply
       p: 0.1
       transforms:

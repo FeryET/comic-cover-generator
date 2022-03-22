@@ -111,7 +111,7 @@ class CoverDataset(Dataset):
         images_folder: str,
         preload_images=True,
         preload_path="cache/",
-        image_size: Tuple[int, int] = (284, 284),
+        image_size: Tuple[int, int] = (184, 128),
         image_transforms: vision_transforms.Compose = None,
     ) -> None:
         """Initialize an instance of CoverDataset.

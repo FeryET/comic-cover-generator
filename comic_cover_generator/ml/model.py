@@ -31,7 +31,7 @@ class Freezeable(Protocol):
 class Critic(nn.Module, Freezeable):
     """critic Model based on MobileNetV3."""
 
-    input_shape: Tuple[int, int] = (224, 224)
+    input_shape: Tuple[int, int] = (128, 128)
 
     def __init__(self) -> None:
         """Initialize an instance."""
@@ -92,6 +92,7 @@ class Generator(nn.Module, Freezeable):
             model_name="celebAHQ-256",
             pretrained=pretrained,
         ).getNetG()
+        self.resizer = nn.Conv2d(3, 3, kernel_size=3, stride=2, padding=1, bias=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -102,7 +103,7 @@ class Generator(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        return self.features(x)
+        return self.resizer(self.features(x))
 
     def freeze(self):
         """Freeze the generator model."""
