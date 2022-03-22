@@ -76,7 +76,7 @@ class Generator(nn.Module, Freezeable):
     """Generator model based on PGAN."""
 
     latent_dim: int = 512
-    output_shape: Tuple[int, int] = (224, 224)
+    output_shape: Tuple[int, int] = (256, 256)
 
     def __init__(self, pretrained=True) -> None:
         """Initialize an instance.
@@ -93,16 +93,6 @@ class Generator(nn.Module, Freezeable):
             pretrained=pretrained,
         ).getNetG()
 
-        # resize 256x256 to 224x224
-        self.resizer = nn.Conv2d(
-            in_channels=3,
-            out_channels=3,
-            kernel_size=33,
-            stride=1,
-            padding=0,
-            groups=3,
-        )
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
 
@@ -112,7 +102,7 @@ class Generator(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        return self.resizer(self.features(x))
+        return self.features(x)
 
     def freeze(self):
         """Freeze the generator model."""

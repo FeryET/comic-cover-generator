@@ -39,6 +39,12 @@ def _pad_image_to_shape(image: Image.Image, image_size: Tuple[int, int]) -> Imag
     )
 
 
+def _resize_image_to_shape(
+    image: Image.Image, image_size: Tuple[int, int]
+) -> Image.Image:
+    return image.resize(image_size, resample=Image.NEAREST)
+
+
 class CoverDatasetItem(TypedDict):
     """An item returned by the py:func:`CoverDataset<comic_cover_generator.ml.dataset.CoverDataet.__getitem__()`."""
 
@@ -83,7 +89,7 @@ class CoverDataset(Dataset):
                 "images",
                 shape=(len(image_paths), *image_size, 3),
                 dtype=np.uint8,
-                chunks=(5, *image_size, 3),
+                chunks=(10, *image_size, 3),
                 compression="gzip",
             )
             for index, fpath in enumerate(
@@ -91,7 +97,7 @@ class CoverDataset(Dataset):
             ):
                 image = Image.open(fpath).convert("RGB")
                 dataset[index] = np.asarray(
-                    _pad_image_to_shape(image, image_size),
+                    _resize_image_to_shape(image, image_size),
                     dtype=np.uint8,
                 )
             dataset.attrs["status"] = "ready"
@@ -105,7 +111,7 @@ class CoverDataset(Dataset):
         images_folder: str,
         preload_images=True,
         preload_path="cache/",
-        image_size: Tuple[int, int] = (250, 250),
+        image_size: Tuple[int, int] = (284, 284),
         image_transforms: vision_transforms.Compose = None,
     ) -> None:
         """Initialize an instance of CoverDataset.
@@ -188,6 +194,6 @@ class CoverDataset(Dataset):
         else:
             # read PIL image
             image = Image.open(self.data.images[index]).convert("RGB")
-            image = _pad_image_to_shape(image, self.image_size)
+            image = _resize_image_to_shape(image, self.image_size)
         image = self.image_transforms(image)
         return {"image": image}
