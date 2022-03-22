@@ -235,6 +235,7 @@ class GAN(pl.LightningModule):
         # train generator
         if optimizer_idx == 0:
             self.critic.freeze()
+            self.generator.unfreeze()
             gen_fake = self.critic(self.generator(z)).reshape(-1)
             loss_gen = generator_loss_fn(gen_fake)
             tqdm_dict = {"generator_loss": loss_gen.detach()}
@@ -249,10 +250,11 @@ class GAN(pl.LightningModule):
         # train discriminator
         if optimizer_idx == 1:
             self.critic.unfreeze()
+            self.generator.freeze()
             fakes = self.generator(z)
-            critic_score_fakes = self.critic(fakes.detach())
+            critic_score_fakes = self.critic(fakes)
             critic_score_reals = self.critic(reals)
-            gp = gradient_penalty(self.critic, reals, fakes)
+            gp = gradient_penalty(self.critic, reals.data, fakes.data)
             loss_critic = critic_loss_fn(
                 critic_score_fakes, critic_score_reals, gp, self.gradient_penalty_coef
             )

@@ -32,11 +32,11 @@ def test_generator_loss_fn_pass(input, correct):
 
 
 def test_gradient_penalty_pass(real_imgs, fake_imgs, critic):
-    gradient_penalty(critic, real_imgs, fake_imgs)
+    gradient_penalty(critic, real_imgs.data, fake_imgs.data)
 
 
 def test_critic_loss_pass(real_imgs, fake_imgs, critic):
     real_pred = critic(real_imgs)
     fake_pred = critic(fake_imgs)
-    gp = gradient_penalty(critic, real_imgs, fake_imgs)
-    critic_loss_fn(real_pred, fake_pred, gp, 0.1)
+    gp = gradient_penalty(critic, real_imgs.data, fake_imgs.data)
+    critic_loss_fn(real_pred, fake_pred, gp, 0.1).backward()

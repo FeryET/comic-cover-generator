@@ -58,6 +58,9 @@ def gradient_penalty(
     alpha = alpha.expand(*real.size()[::-1])
     alpha = alpha.permute(*torch.arange(real.ndim - 1, -1, -1))
     interpolated_images = real * alpha + fake * (1 - alpha)
+    interpolated_images = torch.autograd.Variable(
+        interpolated_images, requires_grad=True
+    )
 
     # Calculate critic scores
     mixed_scores = critic(interpolated_images)
