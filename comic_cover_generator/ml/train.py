@@ -34,6 +34,10 @@ def train(cfg: DictConfig):
     trainer = pl.Trainer(**config["trainer"])
 
     # init logger
+    tracking_uri = config["logger"].pop("tracking_uri")
+    mlflow.set_tracking_uri(tracking_uri)
+    print(mlflow.get_tracking_uri(), tracking_uri)
+    mlflow.set_experiment("comic-cover-generator")
     mlflow.pytorch.autolog(**config["logger"])
 
     with mlflow.start_run():

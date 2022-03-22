@@ -200,7 +200,6 @@ class GAN(pl.LightningModule):
             gradient_penalty_coef (float, optional): Defaults to 0.2.
         """
         super().__init__()
-        self._epoch = 0
 
         self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
 
@@ -351,20 +350,14 @@ class GAN(pl.LightningModule):
         # log sampled images
         with torch.no_grad():
             sample_imgs = self(z)
-        grid = (
-            torchvision.utils.make_grid(sample_imgs, nrow=4)
-            .detach()
-            .cpu()
-            .permute(1, 2, 0)
-            .numpy()
-        )
-        self.logger.experiment.log_image(grid, f"generated/gen_{self._epoch}.jpg")
+        grid = torchvision.utils.make_grid(sample_imgs, nrow=4)
+
+        self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
 
         # compute fid
         fid = self.fid.compute()
         self.log("fid", fid, prog_bar=True)
         self.fid.reset()
-        self._epoch += 1
 
         return super().training_epoch_end(outputs)
 

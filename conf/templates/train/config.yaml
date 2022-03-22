@@ -3,9 +3,11 @@ defaults:
   - model: gan
   - _self_
 
-logger: {}
+logger:
+  tracking_uri: "file://${hydra:runtime.cwd}/experiment_outputs/mlruns/"
 
 trainer:
+  default_root_dir: "${hydra:runtime.cwd}/experiment_outputs"
   max_steps: 10000
   gpus: 0
   amp_backend: "apex"
@@ -15,7 +17,6 @@ trainer:
   enable_progress_bar: True
   callbacks:
     - _target_: pytorch_lightning.callbacks.ModelCheckpoint
-      dirpath: "${hydra:runtime.cwd}/checkpoints/"
       filename: "{epoch}-{fid:.2f}"
       monitor: "fid"
       mode: "min"
