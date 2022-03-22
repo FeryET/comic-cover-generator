@@ -139,9 +139,10 @@ class Generator(nn.Module, Freezeable):
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
-            nn.ConvTranspose2d(512, 3, kernel_size=4, stride=4, padding=0),
+            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=4, padding=0),
+            nn.Conv2d(128, 3, kernel_size=5, stride=1, padding=2),
         )
-        self.normalizer = nn.Tanh()
+        self.normalizer = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -194,6 +195,9 @@ class GAN(pl.LightningModule):
             gradient_penalty_coef (float, optional): Defaults to 0.2.
         """
         super().__init__()
+        from torchmetrics.image.fid import FrechetInceptionDistance
+
+        self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
 
         self.train_dataset = None
         self.batch_size = batch_size
@@ -269,6 +273,10 @@ class GAN(pl.LightningModule):
         Returns:
             Dict[str, Any]: The output of the training step.
         """
+
+        def to_uint8(x: torch.Tensor):
+            return (x * 256.0).type(torch.uint8)
+
         reals: torch.Tensor = batch["image"]
 
         device = reals.device
@@ -282,8 +290,9 @@ class GAN(pl.LightningModule):
         if optimizer_idx == 0:
             self.critic.freeze()
             self.generator.unfreeze()
-            gen_fake = self.critic(self.generator(z)).reshape(-1)
-            loss_gen = generator_loss_fn(gen_fake)
+            fake = self.generator(z)
+            critic_gen_fake = self.critic(fake).reshape(-1)
+            loss_gen = generator_loss_fn(critic_gen_fake)
             tqdm_dict = {"generator_loss": loss_gen.detach()}
             output = {
                 "loss": loss_gen,
@@ -291,6 +300,10 @@ class GAN(pl.LightningModule):
                 "log": tqdm_dict,
             }
             self.log("generator_loss", tqdm_dict["generator_loss"], prog_bar=True)
+
+            self.fid.update(to_uint8(fake.detach()), real=False)
+            self.fid.update(to_uint8(reals), real=True)
+
             return output
 
         # train discriminator
@@ -318,8 +331,12 @@ class GAN(pl.LightningModule):
             )
             return output
 
-    def on_epoch_end(self):
-        """Generate an output on epoch end callback."""
+    def training_epoch_end(self, outputs: Any) -> None:
+        """Generate an output on epoch end callback.
+
+        Args:
+            outputs (Any): _description_
+        """
         w = next(filter(lambda x: x.requires_grad, self.parameters()))
         z = self.validation_z.type_as(w).to(w.device)
 
@@ -327,6 +344,13 @@ class GAN(pl.LightningModule):
         sample_imgs = self(z)
         grid = torchvision.utils.make_grid(sample_imgs, nrow=4)
         self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
+
+        # compute fid
+        fid = self.fid.compute()
+        self.log("fid", fid, prog_bar=True)
+        self.fid.reset()
+
+        return super().training_epoch_end(outputs)
 
     def train_dataloader(self) -> DataLoader:
         """Get the train loader.

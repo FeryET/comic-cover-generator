@@ -17,7 +17,8 @@ trainer:
     - _target_: pytorch_lightning.callbacks.ModelCheckpoint
       dirpath: "${hydra:runtime.cwd}/checkpoints/"
       filename: "{epoch}-{step}-{generator_loss:.2f}-{critic_loss:.2f}"
-      monitor: "generator_loss"
+      monitor: "fid"
+      mode: "min"
       every_n_train_steps: 1000
       save_top_k: 1
       save_weights_only: True
