@@ -107,6 +107,10 @@ class TestCoverDatasetInstanceMethods:
     ):
         assert len(dataset_instance) == len(metadata_dataframe)
 
-    def test_cover_datset_iteration(self, dataset_instance):
-        for item in dataset_instance:
+    def test_cover_dataset_iteration(self, dataset_instance):
+        for _ in dataset_instance:
             pass
+
+    def test_cover_dataset_image_shape_pass(self, dataset_instance, image_size):
+        image = dataset_instance[0]["image"]
+        assert image.size() == (3, *image_size)

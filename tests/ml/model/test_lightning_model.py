@@ -28,7 +28,7 @@ def model():
         "comic_cover_generator.ml.model.generator_loss_fn",
         result_func,
     ):
-        gan = GAN(pretrained=False)
+        gan = GAN()
         yield gan
 
 

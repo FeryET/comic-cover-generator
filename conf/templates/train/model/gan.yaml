@@ -1,4 +1,3 @@
-pretrained: False
 batch_size: 1
 gradient_penalty_coef: 10
 optimizer_params:

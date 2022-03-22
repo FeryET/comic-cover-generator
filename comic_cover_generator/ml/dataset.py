@@ -33,7 +33,7 @@ def _filter_non_existant_images(metadata_df: pd.DataFrame) -> pd.DataFrame:
 def _pad_image_to_shape(image: Image.Image, image_size: Tuple[int, int]) -> Image.Image:
     return ImageOps.pad(
         image,
-        image_size,
+        image_size[::-1],
         color=0,
         centering=(0.0, 0.0),
     )
@@ -42,7 +42,7 @@ def _pad_image_to_shape(image: Image.Image, image_size: Tuple[int, int]) -> Imag
 def _resize_image_to_shape(
     image: Image.Image, image_size: Tuple[int, int]
 ) -> Image.Image:
-    return image.resize(image_size, resample=Image.NEAREST)
+    return image.resize(image_size[::-1], resample=Image.NEAREST)
 
 
 class CoverDatasetItem(TypedDict):
@@ -121,7 +121,7 @@ class CoverDataset(Dataset):
             images_folder (str): The path to the images folder.
             preload_images (bool, optional): Whether to preload images in h5 format. Defaults to True.
             preload_path (str, optional): The path to preload images. Defaults to "cache/".
-            image_size (Tuple[int, int], optional): Image size. Defaults to (250, 250).
+            image_size (Tuple[int, int], optional): Image size. Defaults to (128, 184).
             image_transforms (torchvision.transforms.Compose): Image transforms.
         """
         self.image_folder = Path(images_folder)

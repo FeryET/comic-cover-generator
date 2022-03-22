@@ -73,27 +73,75 @@ class Critic(nn.Module, Freezeable):
         return self
 
 
+class ResNetBlock(nn.Module):
+    """Resnet block module."""
+
+    def __init__(self, channels: int, p_dropout: float = 0.2) -> None:
+        """Initialize a resnet block.
+
+        Args:
+            channels (int): channels in resnent block.
+            p_dropout (float, optional): Defaults to 0.2.
+        """
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                channels, channels // 4, kernel_size=3, padding=1, stride=1, bias=False
+            ),
+            nn.InstanceNorm2d(channels // 4),
+            nn.ReLU(),
+            nn.Conv2d(
+                channels // 4, channels, kernel_size=1, padding=0, stride=1, bias=False
+            ),
+        )
+
+        self.relu = nn.Sequential(nn.Dropout2d(p=p_dropout), nn.ReLU())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward of resnet block.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        identity = x
+        return self.relu(identity + self.block(x))
+
+
 class Generator(nn.Module, Freezeable):
     """Generator model based on PGAN."""
 
     latent_dim: int = 512
-    output_shape: Tuple[int, int] = (256, 256)
+    output_shape: Tuple[int, int] = (128, 128)
 
-    def __init__(self, pretrained=True) -> None:
-        """Initialize an instance.
-
-        Args:
-            pretrained (bool, optional): Defaults to True.
-            use_apu (bool, optional): Defaults to False.
-        """
+    def __init__(self) -> None:
+        """Initialize an instance."""
         super().__init__()
-        self.features = torch.hub.load(
-            "facebookresearch/pytorch_GAN_zoo:hub",
-            "PGAN",
-            model_name="celebAHQ-256",
-            pretrained=pretrained,
-        ).getNetG()
-        self.resizer = nn.Conv2d(3, 3, kernel_size=3, stride=2, padding=1, bias=True)
+
+        self.features = nn.Sequential(
+            nn.Unflatten(dim=-1, unflattened_size=(128, 2, 2)),
+            ResNetBlock(128, 0.2),
+            ResNetBlock(128, 0.2),
+            ResNetBlock(128, 0.2),
+            nn.ConvTranspose2d(128, 256, kernel_size=4, stride=4, padding=0),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            nn.ConvTranspose2d(256, 512, kernel_size=4, stride=4, padding=0),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            nn.ConvTranspose2d(512, 3, kernel_size=4, stride=4, padding=0),
+        )
+        self.normalizer = nn.Tanh()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -104,7 +152,7 @@ class Generator(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        return self.resizer(self.features(x))
+        return self.normalizer(self.features(x))
 
     def freeze(self):
         """Freeze the generator model."""
@@ -133,7 +181,6 @@ class GAN(pl.LightningModule):
     def __init__(
         self,
         optimizer_params: Dict[str, OptimizerParams] = None,
-        pretrained: bool = True,
         batch_size: int = 1,
         gradient_penalty_coef: float = 0.2,
     ) -> None:
@@ -141,7 +188,6 @@ class GAN(pl.LightningModule):
 
         Args:
             optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
-            pretrained (bool, optional): Defaults to True.
             batch_size (int, optional): Defaults to 1.
             critic_update_step (int, optional): Defaults to 3.
             critic_loss_threshold (float, optional): Defaults to 0.3.
@@ -153,7 +199,7 @@ class GAN(pl.LightningModule):
         self.batch_size = batch_size
         self.gradient_penalty_coef = gradient_penalty_coef
 
-        self.generator = Generator(pretrained=pretrained)
+        self.generator = Generator()
         self.critic = Critic()
 
         self.save_hyperparameters()
@@ -274,9 +320,8 @@ class GAN(pl.LightningModule):
 
     def on_epoch_end(self):
         """Generate an output on epoch end callback."""
-        z = self.validation_z.type_as(self.generator.resizer.weight).to(
-            self.generator.resizer.weight.device
-        )
+        w = next(filter(lambda x: x.requires_grad, self.parameters()))
+        z = self.validation_z.type_as(w).to(w.device)
 
         # log sampled images
         sample_imgs = self(z)

@@ -23,7 +23,7 @@ class MockedPGAN:
 def gen():
     with mock.patch("torch.hub.load") as mocked:
         mocked.return_value = MockedPGAN()
-        yield Generator(pretrained=False)
+        yield Generator()
 
 
 @torch.no_grad()
