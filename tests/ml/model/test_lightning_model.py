@@ -19,16 +19,16 @@ def model():
     with mock.patch("comic_cover_generator.ml.model.Generator"), mock.patch(
         "comic_cover_generator.ml.model.Critic"
     ), mock.patch(
-        "comic_cover_generator.ml.model.gradient_penalty",
+        "comic_cover_generator.ml.model.gan.gradient_penalty",
         result_func,
     ), mock.patch(
-        "comic_cover_generator.ml.model.critic_loss_fn",
+        "comic_cover_generator.ml.model.gan.critic_loss_fn",
         result_func,
     ), mock.patch(
-        "comic_cover_generator.ml.model.generator_loss_fn",
+        "comic_cover_generator.ml.model.gan.generator_loss_fn",
         result_func,
     ), mock.patch(
-        "comic_cover_generator.ml.model.FrechetInceptionDistance",
+        "comic_cover_generator.ml.model.gan.FrechetInceptionDistance",
     ):
         gan = GAN()
         yield gan
@@ -36,7 +36,7 @@ def model():
 
 @pytest.fixture(scope="module", params=[1, 5, 10])
 def batch(request):
-    return {"image": torch.rand(request.param, *Critic.input_shape)}
+    return {"image": torch.rand(request.param, 3, *Critic.input_shape)}
 
 
 @torch.no_grad()

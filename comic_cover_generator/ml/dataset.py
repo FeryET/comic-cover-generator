@@ -204,7 +204,6 @@ class CoverDataset(Dataset):
         Returns:
             CoverDatasetItem: A dictionary of tensors.
         """
-        # TODO: add PIL image tests.
         if self.preload_images:
             image = Image.fromarray(self.data.images[index])
         else:

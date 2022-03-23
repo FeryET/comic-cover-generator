@@ -1,0 +1,70 @@
+"""Generator module."""
+from typing import Tuple
+
+import torch
+from torch import nn
+
+from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock
+
+
+class Generator(nn.Module, Freezeable):
+    """Generator model based on PGAN."""
+
+    latent_dim: int = 512
+    output_shape: Tuple[int, int] = (128, 128)
+
+    def __init__(self) -> None:
+        """Initialize an instance."""
+        super().__init__()
+
+        self.features = nn.Sequential(
+            nn.Unflatten(dim=-1, unflattened_size=(128, 2, 2)),
+            ResNetBlock(128, 0.2),
+            ResNetBlock(128, 0.2),
+            ResNetBlock(128, 0.2),
+            nn.ConvTranspose2d(128, 256, kernel_size=4, stride=4, padding=0),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            ResNetBlock(256, 0.2),
+            nn.ConvTranspose2d(256, 512, kernel_size=4, stride=4, padding=0),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            ResNetBlock(512, 0.2),
+            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=4, padding=0),
+            nn.InstanceNorm2d(128, affine=True),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.InstanceNorm2d(128, affine=True),
+            nn.ReLU(),
+            nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1),
+        )
+        self.normalizer = nn.Tanh()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward function.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        return self.normalizer(self.features(x))
+
+    def freeze(self):
+        """Freeze the generator model."""
+        for p in self.parameters():
+            p.requires_grad = False
+        return self
+
+    def unfreeze(self):
+        """Unfreeze the generator model."""
+        for p in self.parameters():
+            p.requires_grad = True
+        return self
