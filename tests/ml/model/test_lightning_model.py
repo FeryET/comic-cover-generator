@@ -1,3 +1,4 @@
+import random
 from unittest import mock
 
 import pytest
@@ -46,8 +47,16 @@ def model():
 def batch(request):
     with mock.patch(
         "comic_cover_generator.ml.model.gan.torch.Tensor", spec=torch.Tensor
-    ), mock.patch.object(torch, "rand", spec=torch.rand):
-        return {"image": torch.rand(request.param, 3, *Critic.input_shape)}
+    ), mock.patch.object(torch, "rand", spec=torch.rand), mock.patch.object(
+        torch, "randint", spec=torch.randint
+    ):
+        return {
+            "image": torch.rand(request.param, 3, *Critic.input_shape),
+            "title_seq": [
+                torch.randint(0, 256, [random.randint(1, 3)])
+                for i in range(request.param)
+            ],
+        }
 
 
 @torch.no_grad()

@@ -1,19 +1,23 @@
 """Model module."""
 from collections import OrderedDict
-from typing import Any, Dict, List, Type
+from dataclasses import dataclass
+from typing import Any, Dict, List, Sequence, Type
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torchvision
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torchmetrics.image.fid import FrechetInceptionDistance
 
+from comic_cover_generator.ml.dataset import CoverDataset
 from comic_cover_generator.ml.loss import (
     critic_loss_fn,
     generator_loss_fn,
     gradient_penalty,
 )
 from comic_cover_generator.ml.model import Critic, Generator
+from comic_cover_generator.ml.utils import CoverDatasetBatch, collate_fn
 from comic_cover_generator.typing import TypedDict
 
 
@@ -22,6 +26,14 @@ class OptimizerParams(TypedDict):
 
     cls: Type[torch.optim.Optimizer]
     kwargs: Dict[str, Any]
+
+
+@dataclass
+class ValidationData:
+    """Validation data class."""
+
+    z: torch.Tensor
+    seq: Sequence[torch.Tensor]
 
 
 # TODO: Make this class configurable.
@@ -73,15 +85,28 @@ class GAN(pl.LightningModule):
             )
         self.optimizer_params = optimizer_params
 
-        self.validation_z = torch.randn(16, self.generator.latent_dim)
+        self.validation_data: ValidationData = None
 
-    def attach_train_dataset(self, train_dataset: Dataset):
-        """Attach train dataset.
+    def attach_train_dataset_and_generate_validtaion_data(
+        self, train_dataset: CoverDataset, val_gen_seed: int = 42
+    ):
+        """Attach train dataset and generate validation data.
 
         Args:
             train_dataset (Dataset): train dataset.
+            val_gen_seed (int): validation generation seed.
         """
         self.train_dataset = train_dataset
+        rng = np.random.default_rng(seed=val_gen_seed)
+        self.validation_data = ValidationData(
+            z=torch.empty(8, Generator.latent_dim),
+            seq=[
+                self.train_dataset[idx]["title_seq"]
+                for idx in rng.choice(
+                    range(len(self.train_dataset)), size=8, replace=False
+                )
+            ],
+        )
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
         """Configure the optimizers of the model.
@@ -97,24 +122,25 @@ class GAN(pl.LightningModule):
             for _, v in self.optimizer_params.items()
         ]
 
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
+    def forward(self, z: torch.Tensor, seq: Sequence[torch.Tensor]) -> torch.Tensor:
         """Forward calls only the generator.
 
         Args:
             z (torch.Tensor): noise input.
+            seq (Sequence[torch.Tensor]): sequence input.
 
         Returns:
             torch.Tensor: generated image.
         """
-        return self.generator(z)
+        return self.generator(z, seq)
 
     def training_step(
-        self, batch: Dict[str, torch.Tensor], batch_idx: int, optimizer_idx: int
+        self, batch: CoverDatasetBatch, batch_idx: int, optimizer_idx: int
     ) -> Dict[str, Any]:
         """Execute a training step.
 
         Args:
-            batch (Dict[str, torch.Tensor]):
+            batch (CoverDatasetBatch):
             batch_idx (int):
             optimizer_idx (int):
 
@@ -125,7 +151,8 @@ class GAN(pl.LightningModule):
         def to_uint8(x: torch.Tensor):
             return (x * 255.0).type(torch.uint8)
 
-        reals: torch.Tensor = batch["image"]
+        reals = batch["image"]
+        seq = [x.to(reals.device) for x in batch["title_seq"]]
 
         # sample noise from normal distribution
         z = torch.empty(
@@ -144,7 +171,7 @@ class GAN(pl.LightningModule):
             self.generator.unfreeze()
             self.generator.train()
 
-            fake = self.generator(z)
+            fake = self.generator(z, seq)
             critic_gen_fake = self.critic(fake).reshape(-1)
             loss_gen = generator_loss_fn(critic_gen_fake)
             tqdm_dict = {"generator_loss": loss_gen.detach()}
@@ -169,7 +196,7 @@ class GAN(pl.LightningModule):
             self.generator.freeze()
             self.generator.eval()
 
-            fakes = self.generator(z)
+            fakes = self.generator(z, seq)
 
             # add noise to both fakes and reals
             fakes += torch.empty_like(fakes).normal_(std=0.01).clamp_(-1.0, 1.0)
@@ -207,11 +234,12 @@ class GAN(pl.LightningModule):
         self.eval()
 
         w = next(filter(lambda x: x.requires_grad, self.parameters()))
-        z = self.validation_z.type_as(w).to(w.device)
+        z = self.validation_data.z.type_as(w).to(w.device)
+        seq = [s.to(w.device) for s in self.validation_data.seq]
 
         # log sampled images
         with torch.no_grad():
-            sample_imgs = self(z)
+            sample_imgs = self(z, seq)
 
         grid = torchvision.utils.make_grid(sample_imgs, nrow=4)
 
@@ -234,4 +262,5 @@ class GAN(pl.LightningModule):
             self.train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
+            collate_fn=collate_fn,
         )

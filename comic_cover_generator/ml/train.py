@@ -28,7 +28,7 @@ def train(cfg: DictConfig):
 
     # init model
     model = GAN(**config["model"])
-    model.attach_train_dataset(dataset)
+    model.attach_train_dataset_and_generate_validtaion_data(dataset)
 
     # init trainer
     trainer = pl.Trainer(**config["trainer"])

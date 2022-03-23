@@ -4,7 +4,12 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock, ResNetScaler
+from comic_cover_generator.ml.model.base import (
+    Freezeable,
+    ResNetBlock,
+    ResNetScaler,
+    Seq2Vec,
+)
 
 
 class Generator(nn.Module, Freezeable):
@@ -17,11 +22,22 @@ class Generator(nn.Module, Freezeable):
         """Initialize an instance."""
         super().__init__()
 
-        self.features = nn.Sequential(
+        self.condition = nn.Sequential(
             nn.Unflatten(dim=-1, unflattened_size=(128, 2, 2)),
             ResNetBlock(128, 0.2),
             ResNetBlock(128, 0.2),
             ResNetBlock(128, 0.2),
+        )
+
+        self.title_embed = nn.Sequential(
+            Seq2Vec(64),
+            nn.Unflatten(dim=-1, unflattened_size=(16, 2, 2)),
+            nn.Conv2d(16, 128, kernel_size=1, padding=0, stride=1, bias=0, groups=16),
+            nn.InstanceNorm2d(128, affine=True),
+            nn.ReLU(),
+        )
+
+        self.features = nn.Sequential(
             ResNetScaler("up", 128, 256, kernel_size=4, stride=4, padding=0),
             ResNetBlock(256, 0.2),
             ResNetBlock(256, 0.2),
@@ -42,15 +58,17 @@ class Generator(nn.Module, Freezeable):
             nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1), nn.Tanh()
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward function.
+    def forward(self, z: torch.Tensor, title_seq: torch.Tensor) -> torch.Tensor:
+        """Map a noise and a sequence to an image.
 
         Args:
-            x (torch.Tensor):
+            z (torch.Tensor): Noise input.
+            title_seq (torch.Tensor): title sequence.
 
         Returns:
             torch.Tensor:
         """
+        x = self.condition(z) + self.title_embed(title_seq)
         return self.to_rgb(self.features(x))
 
     def freeze(self):

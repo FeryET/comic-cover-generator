@@ -1,3 +1,4 @@
+import random
 from unittest import mock
 
 import pytest
@@ -28,4 +29,10 @@ def gen():
 
 @torch.no_grad()
 def test_generator_resizer_shape_match_critic_input_shape(gen):
-    assert gen(torch.rand(1, gen.latent_dim)).size()[-2:] == Critic.input_shape
+    assert (
+        gen(
+            torch.rand(1, gen.latent_dim),
+            [torch.randint(0, 256, [random.randint(1, 3)])],
+        ).size()[-2:]
+        == Critic.input_shape
+    )

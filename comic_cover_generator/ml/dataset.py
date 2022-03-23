@@ -46,6 +46,16 @@ def _resize_image_to_shape(
     return image.resize(image_size[::-1], resample=Image.NEAREST)
 
 
+def _map_string_to_id_tensor(title_str: str) -> Tensor:
+    result = []
+    for idx, word in enumerate(title_str.strip().split()):
+        item = [ord(c) for c in word]
+        if idx != 0:
+            item = [ord(" ")] + item
+        result.extend(item)
+    return torch.as_tensor(result)
+
+
 class MapToMinusOneAndOne:
     """Transforms which maps a tensor from [0,1] to [-1, 1]."""
 
@@ -65,6 +75,7 @@ class CoverDatasetItem(TypedDict):
     """An item returned by the py:func:`CoverDataset<comic_cover_generator.ml.dataset.CoverDataet.__getitem__()`."""
 
     image: Tensor
+    title_seq: Tensor
 
 
 class CoverDataset(Dataset):
@@ -210,5 +221,10 @@ class CoverDataset(Dataset):
             # read PIL image
             image = Image.open(self.data.images[index]).convert("RGB")
             image = _resize_image_to_shape(image, self.image_size)
+
+        title_seq = _map_string_to_id_tensor(
+            self.data.metadata.iloc[index]["full_title"]
+        )
+
         image = self.image_transforms(image)
-        return {"image": image}
+        return {"image": image, "title_seq": title_seq}

@@ -33,7 +33,7 @@ def metadata_dataframe(metadata_csv, images_folder, random_state, image_size):
         "series": [str(i) for i in range(11, 30)],
     }
     df = pd.DataFrame(metadata)
-    df["fulltitle"] = df["series"].apply(lambda x: f"{x} full title")
+    df["full_title"] = df["series"].apply(lambda x: f"{x} full title")
     df["img_url"] = df["series"].apply(lambda x: f"/image/{x}.jpg")
     df["image_path"] = df["img_url"].apply(lambda x: f"{images_folder}/{x[7:]}")
     df.to_csv(metadata_csv, index_label=False)
