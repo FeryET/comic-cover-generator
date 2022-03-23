@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock
+from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock, ResNetScaler
 
 
 class Generator(nn.Module, Freezeable):
@@ -22,29 +22,25 @@ class Generator(nn.Module, Freezeable):
             ResNetBlock(128, 0.2),
             ResNetBlock(128, 0.2),
             ResNetBlock(128, 0.2),
-            nn.ConvTranspose2d(128, 256, kernel_size=4, stride=4, padding=0),
+            ResNetScaler("up", 128, 256, kernel_size=4, stride=4, padding=0),
             ResNetBlock(256, 0.2),
             ResNetBlock(256, 0.2),
             ResNetBlock(256, 0.2),
             ResNetBlock(256, 0.2),
             ResNetBlock(256, 0.2),
             ResNetBlock(256, 0.2),
-            nn.ConvTranspose2d(256, 512, kernel_size=4, stride=4, padding=0),
+            ResNetScaler("up", 256, 512, kernel_size=4, stride=4, padding=0),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
             ResNetBlock(512, 0.2),
-            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=4, padding=0),
-            nn.InstanceNorm2d(128, affine=True),
-            nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-            nn.InstanceNorm2d(128, affine=True),
-            nn.ReLU(),
-            nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1),
+            ResNetScaler("up", 512, 128, kernel_size=4, stride=4, padding=0),
         )
-        self.normalizer = nn.Tanh()
+        self.to_rgb = nn.Sequential(
+            nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1), nn.Tanh()
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
@@ -55,7 +51,7 @@ class Generator(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        return self.normalizer(self.features(x))
+        return self.to_rgb(self.features(x))
 
     def freeze(self):
         """Freeze the generator model."""

@@ -1,5 +1,4 @@
-from cmath import isclose
-
+import numpy as np
 import pytest
 import torch
 from torch.nn import functional as F
@@ -30,13 +29,14 @@ def test_critic_output_shape(disc: Critic, disc_input):
 @pytest.mark.training
 def test_critic_overfitting(disc: Critic, torch_random_generator: torch.Generator):
     batch = torch.rand(2, 3, *disc.input_shape, generator=torch_random_generator)
-    opt = torch.optim.AdamW(params=disc.parameters())
+    opt = torch.optim.AdamW(params=disc.parameters(), lr=0.01)
     target = torch.ones(2, 1, dtype=torch.float32)
+    losses = []
     for _ in range(10):
         opt.zero_grad()
         output = F.sigmoid(disc(batch))
-        loss = F.binary_cross_entropy(output, target)
-        loss.backward()
+        l = F.binary_cross_entropy(output, target)
+        l.backward()
         opt.step()
-    print(loss)
-    assert isclose(loss, 0, abs_tol=0.01)
+        losses.append(l.detach().item())
+    assert np.isclose(losses[-1], 0, atol=0.01)

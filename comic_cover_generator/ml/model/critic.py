@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock
+from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock, ResNetScaler
 
 
 class Critic(nn.Module, Freezeable):
@@ -16,21 +16,24 @@ class Critic(nn.Module, Freezeable):
         """Initialize an instance."""
         super().__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(3, 64, 7, stride=4, padding=0, bias=False),
-            nn.InstanceNorm2d(64, affine=True),
+            ResNetScaler("down", 3, 64, 7, stride=4, padding=3),
             ResNetBlock(64, p_dropout=0.2),
             ResNetBlock(64, p_dropout=0.2),
             ResNetBlock(64, p_dropout=0.2),
-            nn.Conv2d(64, 128, 5, stride=4, padding=0, bias=False),
+            ResNetScaler("down", 64, 128, 5, stride=4, padding=1),
             ResNetBlock(128, p_dropout=0.2),
             ResNetBlock(128, p_dropout=0.2),
             ResNetBlock(128, p_dropout=0.2),
-            nn.Conv2d(128, 256, 3, stride=4, padding=0, bias=False),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
+            ResNetScaler("down", 128, 256, 3, stride=2, padding=1),
+            ResNetBlock(256, p_dropout=0.2),
+            ResNetBlock(256, p_dropout=0.2),
+            ResNetBlock(256, p_dropout=0.2),
+            ResNetScaler("down", 256, 512, 3, stride=2, padding=1),
         )
 
-        self.clf = nn.Linear(256, 1)
+        self.clf = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Dropout(), nn.Linear(512, 1)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.
