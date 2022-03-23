@@ -39,7 +39,11 @@ class ResNetBlock(nn.Module):
             ),
         )
 
-        self.relu = nn.Sequential(nn.Dropout2d(p=p_dropout), nn.ReLU())
+        self.relu = nn.Sequential(
+            nn.InstanceNorm2d(channels, affine=True),
+            nn.ReLU(),
+            nn.Dropout2d(p=p_dropout),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward of resnet block.
