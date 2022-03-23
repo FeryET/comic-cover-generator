@@ -127,12 +127,13 @@ class GAN(pl.LightningModule):
 
         reals: torch.Tensor = batch["image"]
 
-        device = reals.device
-
-        # sample noise
-        z = torch.randn(
-            reals.shape[0], self.generator.latent_dim, dtype=reals.dtype, device=device
-        )
+        # sample noise from normal distribution
+        z = torch.empty(
+            reals.size(0),
+            self.generator.latent_dim,
+            dtype=reals.dtype,
+            device=reals.device,
+        ).normal_(mean=0, std=1)
 
         # train generator
         if optimizer_idx == 0:
@@ -169,6 +170,11 @@ class GAN(pl.LightningModule):
             self.generator.eval()
 
             fakes = self.generator(z)
+
+            # add noise to both fakes and reals
+            fakes += torch.empty_like(fakes).normal_(std=0.01).clamp_(-1.0, 1.0)
+            reals += torch.empty_like(reals).normal_(std=0.01).clamp_(-1.0, 1.0)
+
             critic_score_fakes = self.critic(fakes)
             critic_score_reals = self.critic(reals)
             gp = gradient_penalty(self.critic, reals.data, fakes.data)

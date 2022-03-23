@@ -1,8 +1,10 @@
 from unittest import mock
 
 import pytest
+import pytorch_lightning
 import torch
 from torch import nn
+from torchmetrics.image.fid import FrechetInceptionDistance
 
 from comic_cover_generator.ml.model import GAN, Critic, Generator
 
@@ -16,9 +18,9 @@ def append_freeze_unfreeeze(mocked):
 @pytest.fixture(scope="module")
 def model():
     result_func = lambda *args, **kwargs: torch.Tensor([1.0])  # noqa:
-    with mock.patch("comic_cover_generator.ml.model.gan.Generator"), mock.patch(
-        "comic_cover_generator.ml.model.gan.Critic"
-    ), mock.patch(
+    with mock.patch(
+        "comic_cover_generator.ml.model.gan.Generator", spec=Generator
+    ), mock.patch("comic_cover_generator.ml.model.gan.Critic", spec=Critic), mock.patch(
         "comic_cover_generator.ml.model.gan.gradient_penalty",
         result_func,
     ), mock.patch(
@@ -29,8 +31,12 @@ def model():
         result_func,
     ), mock.patch(
         "comic_cover_generator.ml.model.gan.FrechetInceptionDistance",
+        spec=FrechetInceptionDistance,
     ), mock.patch(
-        "torch.Tensor.backward"
+        "comic_cover_generator.ml.model.gan.torch", spec=torch
+    ), mock.patch(
+        "comic_cover_generator.ml.model.gan.pl",
+        spec=pytorch_lightning,
     ):
         gan = GAN()
         yield gan
@@ -38,7 +44,10 @@ def model():
 
 @pytest.fixture(scope="module", params=[1, 5, 10])
 def batch(request):
-    return {"image": torch.rand(request.param, 3, *Critic.input_shape)}
+    with mock.patch(
+        "comic_cover_generator.ml.model.gan.torch.Tensor", spec=torch.Tensor
+    ), mock.patch.object(torch, "rand", spec=torch.rand):
+        return {"image": torch.rand(request.param, 3, *Critic.input_shape)}
 
 
 @torch.no_grad()
