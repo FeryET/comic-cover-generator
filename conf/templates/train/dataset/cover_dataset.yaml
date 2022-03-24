@@ -3,26 +3,11 @@ images_folder: "${hydra:runtime.cwd}/data/dev_subset/image/"
 preload_images: True,
 preload_path: "${hydra:runtime.cwd}/cache/"
 image_size: [184, 128]
+max_title_seq_length: 10
 image_transforms:
   _target_: torchvision.transforms.Compose
   transforms:
     - _target_: torchvision.transforms.RandomCrop
       size: [128, 128]
-    - _target_: torchvision.transforms.RandomApply
-      p: 0.1
-      transforms:
-        - _target_: torchvision.transforms.RandomGrayscale
-          p: 1.0
-        - _target_: torchvision.transforms.RandomPosterize
-          p: 1.0
-          bits: 4
-        - _target_: torchvision.transforms.ColorJitter
-          brightness: [0.9, 1.1]
-          contrast: [0.9, 1.1]
-          saturation: [0.9, 1.1]
-          hue: [-0.05, 0.05]
-        - _target_: torchvision.transforms.RandomRotation
-          degrees: [-5, 5]
-
     - _target_: torchvision.transforms.ToTensor
     - _target_: comic_cover_generator.ml.dataset.MapToMinusOneAndOne

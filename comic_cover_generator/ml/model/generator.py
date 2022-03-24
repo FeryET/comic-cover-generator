@@ -23,39 +23,61 @@ class Generator(nn.Module, Freezeable):
         super().__init__()
 
         self.condition = nn.Sequential(
-            nn.Unflatten(dim=-1, unflattened_size=(128, 2, 2)),
-            ResNetBlock(128, 0.2),
-            ResNetBlock(128, 0.2),
-            ResNetBlock(128, 0.2),
+            nn.Unflatten(dim=-1, unflattened_size=(8, 8, 8)),
+            ResNetBlock(8),
+            ResNetBlock(8),
+            ResNetBlock(8),
         )
 
         self.title_embed = nn.Sequential(
             Seq2Vec(64),
-            nn.Unflatten(dim=-1, unflattened_size=(16, 2, 2)),
-            nn.Conv2d(16, 128, kernel_size=1, padding=0, stride=1, bias=0, groups=16),
-            nn.InstanceNorm2d(128, affine=True),
+            nn.Unflatten(dim=-1, unflattened_size=(1, 8, 8)),
+            nn.Conv2d(1, 8, kernel_size=1, padding=0, stride=1, bias=False),
+            nn.InstanceNorm2d(8, affine=True),
             nn.ReLU(),
         )
 
         self.features = nn.Sequential(
-            ResNetScaler("up", 128, 256, kernel_size=4, stride=4, padding=0),
-            ResNetBlock(256, 0.2),
-            ResNetBlock(256, 0.2),
-            ResNetBlock(256, 0.2),
-            ResNetBlock(256, 0.2),
-            ResNetBlock(256, 0.2),
-            ResNetBlock(256, 0.2),
-            ResNetScaler("up", 256, 512, kernel_size=4, stride=4, padding=0),
-            ResNetBlock(512, 0.2),
-            ResNetBlock(512, 0.2),
-            ResNetBlock(512, 0.2),
-            ResNetBlock(512, 0.2),
-            ResNetBlock(512, 0.2),
-            ResNetBlock(512, 0.2),
-            ResNetScaler("up", 512, 128, kernel_size=4, stride=4, padding=0),
+            ResNetScaler("up", 8, 16, kernel_size=2, stride=2, padding=0),
+            # 16x16
+            ResNetBlock(16),
+            ResNetBlock(16),
+            ResNetBlock(16),
+            ResNetBlock(16),
+            ResNetBlock(16),
+            ResNetBlock(16),
+            ResNetScaler("up", 16, 32, kernel_size=2, stride=2, padding=0),
+            # 32x32
+            ResNetBlock(32),
+            ResNetBlock(32),
+            ResNetBlock(32),
+            ResNetBlock(32),
+            ResNetBlock(32),
+            ResNetBlock(32),
+            ResNetScaler("up", 32, 64, kernel_size=2, stride=2, padding=0),
+            # 64x64
+            ResNetBlock(64, 2),
+            ResNetBlock(64, 2),
+            ResNetBlock(64, 2),
+            ResNetBlock(64, 2),
+            ResNetBlock(64, 2),
+            ResNetBlock(64, 2),
+            ResNetScaler("up", 64, 128, kernel_size=2, stride=2, padding=0),
+            # 64x64
+            ResNetBlock(128, 2),
+            ResNetBlock(128, 2),
+            ResNetBlock(128, 2),
+            ResNetBlock(128, 2),
+            ResNetBlock(128, 2),
+            ResNetBlock(128, 2),
+            ResNetScaler("up", 128, 256, kernel_size=2, stride=2, padding=0),
+            # 128x128
+            ResNetBlock(256, 2),
+            ResNetBlock(256, 2),
+            ResNetBlock(256, 2),
         )
         self.to_rgb = nn.Sequential(
-            nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1), nn.Tanh()
+            nn.Conv2d(256, 3, kernel_size=1, stride=1, padding=0), nn.Tanh()
         )
 
     def forward(self, z: torch.Tensor, title_seq: torch.Tensor) -> torch.Tensor:

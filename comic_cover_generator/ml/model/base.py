@@ -25,32 +25,101 @@ class Freezeable(Protocol):
         ...
 
 
+class DepthwiseSeperableConv2d(nn.Module):
+    """Depthwise seperable convolution layer."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        padding: int,
+        bias: bool = False,
+    ) -> None:
+        """Initialize a depth wise seperable convolution layer.
+
+        Args:
+            in_channels (int):
+            out_channels (int):
+            kernel_size (int):
+            stride (int):
+            padding (int):
+            bias (bool, optional): Defaults to False.
+        """  # noqa: D417
+        super().__init__()
+        self.depthwise = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=in_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=bias,
+            groups=in_channels,
+        )
+
+        self.pointwise = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            padding=0,
+            stride=1,
+            bias=bias,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward result of the layer.
+
+        Args:
+            x (torch.Tensor): input tensor.
+
+        Returns:
+            torch.Tensor:
+        """
+        return self.pointwise(self.depthwise(x))
+
+
 class ResNetBlock(nn.Module):
     """Resnet block layer."""
 
-    def __init__(self, channels: int, p_dropout: float = 0.2) -> None:
+    def __init__(self, channels: int, denumerator: int = 1) -> None:
         """Initialize a resnet block.
 
         Args:
             channels (int): channels in resnent block.
-            p_dropout (float, optional): Defaults to 0.2.
+            denumerator (int): the intermediate channel denumerator.
         """
+        intermediate_channels = channels // denumerator
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(
-                channels, channels // 4, kernel_size=3, padding=1, stride=1, bias=False
+                in_channels=channels,
+                out_channels=intermediate_channels,
+                kernel_size=1,
+                padding=0,
+                stride=1,
+                bias=False,
             ),
-            nn.InstanceNorm2d(channels // 4, affine=True),
+            nn.InstanceNorm2d(intermediate_channels, affine=True),
             nn.ReLU(),
             nn.Conv2d(
-                channels // 4, channels, kernel_size=1, padding=0, stride=1, bias=False
+                intermediate_channels,
+                intermediate_channels,
+                kernel_size=3,
+                padding=1,
+                stride=1,
+                bias=False,
             ),
-        )
-
-        self.relu = nn.Sequential(
-            nn.InstanceNorm2d(channels, affine=True),
+            nn.InstanceNorm2d(intermediate_channels, affine=True),
             nn.ReLU(),
-            nn.Dropout2d(p=p_dropout),
+            nn.Conv2d(
+                in_channels=intermediate_channels,
+                out_channels=channels,
+                kernel_size=1,
+                padding=0,
+                stride=1,
+                bias=False,
+            ),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -63,7 +132,7 @@ class ResNetBlock(nn.Module):
             torch.Tensor:
         """
         identity = x
-        return self.relu(identity + self.block(x))
+        return identity + self.block(x)
 
 
 class ResNetScaler(nn.Module):
@@ -133,7 +202,7 @@ class PackSequenceEmbedding(nn.Embedding):
             packed_ids.batch_sizes,
             packed_ids.sorted_indices,
             packed_ids.unsorted_indices,
-        )
+        ).to(embeds.device)
 
 
 class Seq2Vec(nn.Module):
@@ -156,7 +225,7 @@ class Seq2Vec(nn.Module):
 
         self.hidden_size = hidden_size
 
-        self.vectorizer = nn.LSTM(
+        self.lstm = nn.LSTM(
             input_size=self.embed_dim,
             hidden_size=self.hidden_size,
             num_layers=1,
@@ -173,17 +242,22 @@ class Seq2Vec(nn.Module):
         Returns:
             Tensor:
         """
+        # pack the sequences
         seq_packed = pack_sequence(
             seq,
             enforce_sorted=True,
-        )
+        ).to(seq[0].device)
 
+        # embed the packed sequence
         x = self.embed(seq_packed)
 
-        x, _ = self.vectorizer(x)
+        # get the lstm output
+        x, _ = self.lstm(x)
 
+        # keep only the last cell's output
         x = torch.stack([row[0] for row in unpack_sequence(x)])
 
+        # average the directions
         x = (x[..., : self.hidden_size] + x[..., self.hidden_size :]) / 2
 
         return x

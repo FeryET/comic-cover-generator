@@ -1,4 +1,6 @@
 """Dataset module."""
+import random
+import string
 from collections import namedtuple
 from pathlib import Path
 from typing import Sequence, Tuple
@@ -46,14 +48,18 @@ def _resize_image_to_shape(
     return image.resize(image_size[::-1], resample=Image.NEAREST)
 
 
-def _map_string_to_id_tensor(title_str: str) -> Tensor:
-    result = []
-    for idx, word in enumerate(title_str.strip().split()):
-        item = [ord(c) for c in word]
-        if idx != 0:
-            item = [ord(" ")] + item
-        result.extend(item)
-    return torch.as_tensor(result)
+GOOD_CHARS = set(string.printable) - set(string.whitespace)
+
+
+def _map_string_to_id_tensor(title_str: str, max_len=10) -> Tensor:
+    result = [
+        ord(char)
+        for word in title_str.strip().split()
+        for char in word
+        if char in GOOD_CHARS
+    ]
+    start = random.randint(0, max(len(result) - max_len, 1))
+    return torch.as_tensor(result[start : start + max_len])
 
 
 class MapToMinusOneAndOne:
@@ -139,6 +145,7 @@ class CoverDataset(Dataset):
         preload_images=True,
         preload_path="cache/",
         image_size: Tuple[int, int] = (184, 128),
+        max_title_seq_length: int = 30,
         image_transforms: vision_transforms.Compose = None,
     ) -> None:
         """Initialize an instance of CoverDataset.
@@ -149,11 +156,13 @@ class CoverDataset(Dataset):
             preload_images (bool, optional): Whether to preload images in h5 format. Defaults to True.
             preload_path (str, optional): The path to preload images. Defaults to "cache/".
             image_size (Tuple[int, int], optional): Image size. Defaults to (128, 184).
+            max_title_seq_length (int, optional): Maximum characters in the title_seq dataset item. Defaults to 30.
             image_transforms (torchvision.transforms.Compose): Image transforms.
         """
         self.image_folder = Path(images_folder)
         self.preload_images = preload_images
         self.image_size = image_size
+        self.max_title_seq_length = max_title_seq_length
         Path(preload_path).mkdir(exist_ok=True)
 
         metadata_df = _filter_non_existant_images(
@@ -223,8 +232,8 @@ class CoverDataset(Dataset):
             image = _resize_image_to_shape(image, self.image_size)
 
         title_seq = _map_string_to_id_tensor(
-            self.data.metadata.iloc[index]["full_title"]
+            self.data.metadata.iloc[index]["full_title"],
+            max_len=self.max_title_seq_length,
         )
-
         image = self.image_transforms(image)
         return {"image": image, "title_seq": title_seq}
