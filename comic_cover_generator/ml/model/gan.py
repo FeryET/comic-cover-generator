@@ -98,14 +98,18 @@ class GAN(pl.LightningModule):
         """
         self.train_dataset = train_dataset
         rng = np.random.default_rng(seed=val_gen_seed)
-        self.validation_data = ValidationData(
-            z=torch.empty(8, Generator.latent_dim),
-            seq=[
+        seq = sorted(
+            [
                 self.train_dataset[idx]["title_seq"]
                 for idx in rng.choice(
                     range(len(self.train_dataset)), size=8, replace=False
                 )
             ],
+            key=lambda x: x.size(0),
+            reverse=True,
+        )
+        self.validation_data = ValidationData(
+            torch.empty(8, Generator.latent_dim).normal_(mean=0.0, std=1.0), seq
         )
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
@@ -153,6 +157,13 @@ class GAN(pl.LightningModule):
 
         reals = batch["image"]
         seq = [x.to(reals.device) for x in batch["title_seq"]]
+
+        # sorting seq and reals
+        sorted_indices = (
+            torch.tensor([s.size(0) for s in seq]).argsort(descending=True).tolist()
+        )
+        seq = [seq[idx] for idx in sorted_indices]
+        reals = reals[sorted_indices, ...]
 
         # sample noise from normal distribution
         z = torch.empty(

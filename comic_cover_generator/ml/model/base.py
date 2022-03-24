@@ -175,7 +175,7 @@ class Seq2Vec(nn.Module):
         """
         seq_packed = pack_sequence(
             seq,
-            enforce_sorted=False,
+            enforce_sorted=True,
         )
 
         x = self.embed(seq_packed)
