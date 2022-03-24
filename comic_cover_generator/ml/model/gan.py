@@ -17,6 +17,7 @@ from comic_cover_generator.ml.loss import (
     gradient_penalty,
 )
 from comic_cover_generator.ml.model import Critic, Generator
+from comic_cover_generator.ml.model.diffaugment import AugmentPolicy, diff_augment
 from comic_cover_generator.ml.utils import CoverDatasetBatch, collate_fn
 from comic_cover_generator.typing import TypedDict
 
@@ -86,6 +87,12 @@ class GAN(pl.LightningModule):
         self.optimizer_params = optimizer_params
 
         self.validation_data: ValidationData = None
+
+        self.augmentation_policy = [
+            AugmentPolicy.color.value,
+            AugmentPolicy.cutout.value,
+            AugmentPolicy.translation.value,
+        ]
 
     def attach_train_dataset_and_generate_validtaion_data(
         self, train_dataset: CoverDataset, val_gen_seed: int = 42
@@ -209,9 +216,8 @@ class GAN(pl.LightningModule):
 
             fakes = self.generator(z, seq)
 
-            # add noise to both fakes and reals
-            fakes += torch.empty_like(fakes).normal_(std=0.01).clamp_(-1.0, 1.0)
-            reals += torch.empty_like(reals).normal_(std=0.01).clamp_(-1.0, 1.0)
+            fakes = diff_augment(fakes, self.augmentation_policy)
+            reals = diff_augment(reals, self.augmentation_policy)
 
             critic_score_fakes = self.critic(fakes)
             critic_score_reals = self.critic(reals)

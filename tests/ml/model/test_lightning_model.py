@@ -8,6 +8,7 @@ from torch import nn
 from torchmetrics.image.fid import FrechetInceptionDistance
 
 from comic_cover_generator.ml.model import GAN, Critic, Generator
+from comic_cover_generator.ml.model.diffaugment import diff_augment
 
 
 def append_freeze_unfreeeze(mocked):
@@ -38,6 +39,8 @@ def model():
     ), mock.patch(
         "comic_cover_generator.ml.model.gan.pl",
         spec=pytorch_lightning,
+    ), mock.patch(
+        "comic_cover_generator.ml.model.gan.diff_augment", spec=diff_augment
     ):
         gan = GAN()
         yield gan

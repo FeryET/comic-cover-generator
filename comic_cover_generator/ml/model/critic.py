@@ -17,17 +17,17 @@ class Critic(nn.Module, Freezeable):
         super().__init__()
         self.features = nn.Sequential(
             ResNetScaler("down", 3, 64, 7, stride=4, padding=3),
-            ResNetBlock(64),
-            ResNetBlock(64),
-            ResNetBlock(64),
+            ResNetBlock(64, 2),
+            ResNetBlock(64, 2),
+            ResNetBlock(64, 2),
             ResNetScaler("down", 64, 128, 5, stride=4, padding=1),
-            ResNetBlock(128, 2),
-            ResNetBlock(128, 2),
-            ResNetBlock(128, 2),
+            ResNetBlock(128, 4),
+            ResNetBlock(128, 4),
+            ResNetBlock(128, 4),
             ResNetScaler("down", 128, 256, 3, stride=2, padding=1),
-            ResNetBlock(256, 2),
-            ResNetBlock(256, 2),
-            ResNetBlock(256, 2),
+            ResNetBlock(256, 4),
+            ResNetBlock(256, 4),
+            ResNetBlock(256, 4),
             ResNetScaler("down", 256, 512, 3, stride=2, padding=1),
         )
 
