@@ -82,13 +82,24 @@ class DepthwiseSeperableConv2d(nn.Module):
 class ResNetBlock(nn.Module):
     """Resnet block layer."""
 
-    def __init__(self, channels: int, expansion: int = 2) -> None:
+    def __init__(self, block_type: str, channels: int, expansion: int = 2) -> None:
         """Initialize a resnet block.
 
         Args:
+            block_type (str): one of "gen" or "critic".
             channels (int): channels in resnent block.
             expansion (int): the intermediate channel expansion factor.
         """
+        if block_type == "gen":
+            norm_type = nn.BatchNorm2d
+        elif block_type == "critic":
+            norm_type = nn.InstanceNorm2d
+        else:
+            raise ValueError(
+                f"block type {block_type} is not accepted. One of 'gen' or 'critic'"
+                " should be given."
+            )
+
         intermediate_channels = channels * expansion
         super().__init__()
         self.block = nn.Sequential(
@@ -100,7 +111,7 @@ class ResNetBlock(nn.Module):
                 stride=1,
                 bias=False,
             ),
-            nn.InstanceNorm2d(intermediate_channels, affine=True),
+            norm_type(intermediate_channels),
             nn.LeakyReLU(negative_slope=0.1),
             nn.Conv2d(
                 intermediate_channels,
@@ -110,7 +121,7 @@ class ResNetBlock(nn.Module):
                 stride=1,
                 bias=False,
             ),
-            nn.InstanceNorm2d(channels, affine=True),
+            norm_type(channels),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -151,15 +162,17 @@ class ResNetScaler(nn.Module):
         super().__init__()
         if scale_type == "down":
             conv_type = nn.Conv2d
+            norm_type = nn.InstanceNorm2d
         elif scale_type == "up":
             conv_type = nn.ConvTranspose2d
+            norm_type = nn.BatchNorm2d
         else:
             raise KeyError("scale_type can only be either of 'down' or 'up'.")
         self.conv = nn.Sequential(
             conv_type(
                 in_channels, out_channels, kernel_size, stride, padding, bias=False
             ),
-            nn.InstanceNorm2d(out_channels, affine=True),
+            norm_type(out_channels, affine=True),
             nn.LeakyReLU(negative_slope=0.1),
         )
 

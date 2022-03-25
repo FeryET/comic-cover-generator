@@ -16,26 +16,19 @@ class Critic(nn.Module, Freezeable):
         """Initialize an instance."""
         super().__init__()
         self.features = nn.Sequential(
-            ResNetScaler("down", 3, 32, 5, stride=4, padding=2),
-            ResNetBlock(32, expansion=2),
-            ResNetBlock(32, expansion=2),
-            ResNetBlock(32, expansion=2),
-            ResNetScaler("down", 32, 64, 3, stride=2, padding=1),
-            ResNetBlock(64, expansion=1),
-            ResNetBlock(64, expansion=1),
-            ResNetBlock(64, expansion=1),
-            ResNetScaler("down", 64, 128, 3, stride=2, padding=1),
-            ResNetBlock(128, expansion=1),
-            ResNetBlock(128, expansion=1),
-            ResNetBlock(128, expansion=1),
-            ResNetScaler("down", 128, 256, 3, stride=2, padding=1),
-            ResNetBlock(256, expansion=1),
-            ResNetBlock(256, expansion=1),
-            ResNetBlock(256, expansion=1),
+            ResNetScaler("down", 3, 24, 7, stride=4, padding=2),
+            # 32 x 32
+            nn.Sequential(*[ResNetBlock("critic", 24, expansion=1) for _ in range(2)]),
+            ResNetScaler("down", 24, 96, 5, stride=4, padding=1),
+            # 8 x 8
+            nn.Sequential(*[ResNetBlock("critic", 96, expansion=1) for _ in range(2)]),
+            ResNetScaler("down", 96, 192, 3, stride=2, padding=1),
+            # 4 x 4
+            nn.Sequential(*[ResNetBlock("critic", 192, expansion=1) for _ in range(2)]),
         )
 
         self.clf = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Dropout(), nn.Linear(256, 1)
+            nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Dropout(), nn.Linear(192, 1)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
