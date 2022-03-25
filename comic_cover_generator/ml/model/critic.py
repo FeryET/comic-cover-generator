@@ -16,19 +16,22 @@ class Critic(nn.Module, Freezeable):
         """Initialize an instance."""
         super().__init__()
         self.features = nn.Sequential(
-            ResNetScaler("down", 3, 32, 7, stride=4, padding=3),
+            ResNetScaler("down", 3, 32, 5, stride=4, padding=2),
             ResNetBlock(32, expansion=2),
             ResNetBlock(32, expansion=2),
             ResNetBlock(32, expansion=2),
-            ResNetScaler("down", 32, 64, 5, stride=4, padding=1),
-            ResNetBlock(64, expansion=2),
-            ResNetBlock(64, expansion=2),
-            ResNetBlock(64, expansion=2),
+            ResNetScaler("down", 32, 64, 3, stride=2, padding=1),
+            ResNetBlock(64, expansion=1),
+            ResNetBlock(64, expansion=1),
+            ResNetBlock(64, expansion=1),
             ResNetScaler("down", 64, 128, 3, stride=2, padding=1),
-            ResNetBlock(128, expansion=2),
-            ResNetBlock(128, expansion=2),
-            ResNetBlock(128, expansion=2),
+            ResNetBlock(128, expansion=1),
+            ResNetBlock(128, expansion=1),
+            ResNetBlock(128, expansion=1),
             ResNetScaler("down", 128, 256, 3, stride=2, padding=1),
+            ResNetBlock(256, expansion=1),
+            ResNetBlock(256, expansion=1),
+            ResNetBlock(256, expansion=1),
         )
 
         self.clf = nn.Sequential(

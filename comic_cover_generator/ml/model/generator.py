@@ -25,7 +25,7 @@ class Generator(nn.Module, Freezeable):
         self.condition = nn.Sequential(
             nn.Unflatten(dim=-1, unflattened_size=(8, 8, 8)),
             nn.Conv2d(8, 16, kernel_size=3, padding=1, stride=1),
-            nn.GroupNorm(1, 16, affine=True),
+            nn.InstanceNorm2d(16, affine=True),
             nn.LeakyReLU(0.1),
         )
 
@@ -33,7 +33,7 @@ class Generator(nn.Module, Freezeable):
             Seq2Vec(64),
             nn.Unflatten(dim=-1, unflattened_size=(1, 8, 8)),
             nn.Conv2d(1, 16, kernel_size=3, padding=1, stride=1),
-            nn.GroupNorm(1, 16, affine=True),
+            nn.InstanceNorm2d(16, affine=True),
             nn.LeakyReLU(0.1),
         )
 

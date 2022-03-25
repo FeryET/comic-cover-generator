@@ -100,7 +100,7 @@ class ResNetBlock(nn.Module):
                 stride=1,
                 bias=False,
             ),
-            nn.GroupNorm(num_groups=1, num_channels=intermediate_channels, affine=True),
+            nn.InstanceNorm2d(intermediate_channels, affine=True),
             nn.LeakyReLU(negative_slope=0.1),
             nn.Conv2d(
                 intermediate_channels,
@@ -110,7 +110,7 @@ class ResNetBlock(nn.Module):
                 stride=1,
                 bias=False,
             ),
-            nn.GroupNorm(num_groups=1, num_channels=channels, affine=True),
+            nn.InstanceNorm2d(channels, affine=True),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -159,7 +159,7 @@ class ResNetScaler(nn.Module):
             conv_type(
                 in_channels, out_channels, kernel_size, stride, padding, bias=False
             ),
-            nn.GroupNorm(num_groups=1, num_channels=out_channels, affine=True),
+            nn.InstanceNorm2d(out_channels, affine=True),
             nn.LeakyReLU(negative_slope=0.1),
         )
 
