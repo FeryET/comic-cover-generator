@@ -82,44 +82,35 @@ class DepthwiseSeperableConv2d(nn.Module):
 class ResNetBlock(nn.Module):
     """Resnet block layer."""
 
-    def __init__(self, channels: int, denumerator: int = 1) -> None:
+    def __init__(self, channels: int, expansion: int = 2) -> None:
         """Initialize a resnet block.
 
         Args:
             channels (int): channels in resnent block.
-            denumerator (int): the intermediate channel denumerator.
+            expansion (int): the intermediate channel expansion factor.
         """
-        intermediate_channels = channels // denumerator
+        intermediate_channels = channels * expansion
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(
                 in_channels=channels,
                 out_channels=intermediate_channels,
-                kernel_size=1,
-                padding=0,
-                stride=1,
-                bias=False,
-            ),
-            nn.InstanceNorm2d(intermediate_channels, affine=True),
-            nn.ReLU(),
-            nn.Conv2d(
-                intermediate_channels,
-                intermediate_channels,
                 kernel_size=3,
                 padding=1,
                 stride=1,
                 bias=False,
             ),
-            nn.InstanceNorm2d(intermediate_channels, affine=True),
-            nn.ReLU(),
+            nn.GroupNorm(num_groups=1, num_channels=intermediate_channels, affine=True),
+            nn.LeakyReLU(negative_slope=0.1),
             nn.Conv2d(
-                in_channels=intermediate_channels,
-                out_channels=channels,
+                intermediate_channels,
+                channels,
                 kernel_size=1,
                 padding=0,
                 stride=1,
                 bias=False,
             ),
+            nn.GroupNorm(num_groups=1, num_channels=channels, affine=True),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -168,8 +159,8 @@ class ResNetScaler(nn.Module):
             conv_type(
                 in_channels, out_channels, kernel_size, stride, padding, bias=False
             ),
-            nn.InstanceNorm2d(out_channels, affine=True),
-            nn.ReLU(),
+            nn.GroupNorm(num_groups=1, num_channels=out_channels, affine=True),
+            nn.LeakyReLU(negative_slope=0.1),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

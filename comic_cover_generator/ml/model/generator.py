@@ -24,30 +24,35 @@ class Generator(nn.Module, Freezeable):
 
         self.condition = nn.Sequential(
             nn.Unflatten(dim=-1, unflattened_size=(8, 8, 8)),
-            nn.Sequential(*[ResNetBlock(8) for _ in range(4)]),
+            nn.Conv2d(8, 16, kernel_size=3, padding=1, stride=1),
+            nn.GroupNorm(1, 16, affine=True),
+            nn.LeakyReLU(0.1),
         )
 
         self.title_embed = nn.Sequential(
             Seq2Vec(64),
             nn.Unflatten(dim=-1, unflattened_size=(1, 8, 8)),
+            nn.Conv2d(1, 16, kernel_size=3, padding=1, stride=1),
+            nn.GroupNorm(1, 16, affine=True),
+            nn.LeakyReLU(0.1),
         )
 
         self.features = nn.Sequential(
-            ResNetScaler("up", 8, 16, kernel_size=2, stride=2, padding=0),
-            # 16x16
-            nn.Sequential(*[ResNetBlock(16) for _ in range(8)]),
             ResNetScaler("up", 16, 32, kernel_size=2, stride=2, padding=0),
-            # 32x32
-            nn.Sequential(*[ResNetBlock(32) for _ in range(8)]),
+            # 16x16
+            nn.Sequential(*[ResNetBlock(32, expansion=2) for _ in range(3)]),
             ResNetScaler("up", 32, 64, kernel_size=2, stride=2, padding=0),
-            # 64x64
-            nn.Sequential(*[ResNetBlock(64) for _ in range(8)]),
+            # 32x32
+            nn.Sequential(*[ResNetBlock(64, expansion=2) for _ in range(3)]),
             ResNetScaler("up", 64, 128, kernel_size=2, stride=2, padding=0),
+            # 64x64
+            nn.Sequential(*[ResNetBlock(128, expansion=2) for _ in range(3)]),
+            ResNetScaler("up", 128, 256, kernel_size=2, stride=2, padding=0),
             # 128x128
-            nn.Sequential(*[ResNetBlock(128, 2) for _ in range(16)]),
+            nn.Sequential(*[ResNetBlock(256, expansion=2) for _ in range(3)]),
         )
         self.to_rgb = nn.Sequential(
-            nn.Conv2d(128, 3, kernel_size=1, stride=1, padding=0), nn.Tanh()
+            nn.Conv2d(256, 3, kernel_size=1, stride=1, padding=0), nn.Tanh()
         )
 
     def forward(self, z: torch.Tensor, title_seq: torch.Tensor) -> torch.Tensor:
