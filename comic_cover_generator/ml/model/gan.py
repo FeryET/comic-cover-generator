@@ -278,9 +278,13 @@ class GAN(pl.LightningModule):
         Returns:
             DataLoader: train data loader.
         """
+        import psutil
+
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
             collate_fn=collate_fn,
+            pin_memory=True,
+            num_workers=psutil.cpu_count(logical=False),
         )
