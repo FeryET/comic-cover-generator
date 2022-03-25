@@ -160,6 +160,7 @@ class GAN(pl.LightningModule):
         """
 
         def to_uint8(x: torch.Tensor):
+            x = x / 2 + 1 / 2
             return (x * 255.0).type(torch.uint8)
 
         reals = batch["image"]
