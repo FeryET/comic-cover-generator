@@ -40,7 +40,7 @@ line-length = 88
 [tool.isort]
 known_first_party = ["nn_core"]
 known_local_folder = "comic_cover_generator"
-known_third_party = ["PIL", "h5py", "hydra", "mlflow", "numpy", "omegaconf", "pandas", "pytest", "pytorch_lightning", "setuptools", "torch", "torchmetrics", "torchvision", "tqdm"]
+known_third_party = ["PIL", "h5py", "hydra", "matplotlib", "mlflow", "numpy", "omegaconf", "pandas", "pytest", "pytorch_lightning", "setuptools", "torch", "torchmetrics", "torchvision", "tqdm"]
 line_length = 88
 profile = 'black'
 

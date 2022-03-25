@@ -258,7 +258,9 @@ class GAN(pl.LightningModule):
         with torch.no_grad():
             sample_imgs = self(z, seq)
 
-        grid = torchvision.utils.make_grid(sample_imgs, nrow=4)
+        grid = torchvision.utils.make_grid(
+            sample_imgs, nrow=4, value_range=(-1, 1), normalize=True
+        )
 
         self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
 

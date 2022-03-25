@@ -12,6 +12,45 @@ from comic_cover_generator.ml.model import GAN
 CONFIG_PATH = "../../conf/train/"
 
 
+def generate_training_images_grid(
+    dataset: CoverDataset, shape=(4, 4), random_seed: int = 42
+) -> None:
+    """Generate a grid for training images.
+
+    Args:
+        dataset (CoverDataset): Input dataset.
+        shape (tuple, optional): Defaults to (4, 4).
+        random_seed (int, optional): Defaults to 42.
+    """
+    import numpy as np
+    import torch
+
+    from comic_cover_generator.ml.utils import make_captioned_grid
+
+    rng = np.random.default_rng(random_seed)
+    indices = rng.choice(np.arange(len(dataset)), size=shape, replace=False)
+
+    images, titles = [], []
+
+    for idx in indices.flat:
+        item = dataset[idx]
+        images.append(item["image"])
+        titles.append(item["full_title"])
+
+    images = torch.stack(images)
+
+    make_captioned_grid(
+        images,
+        titles,
+        shape,
+        value_range=(-1, 1),
+        normalize=True,
+        figsize=(16, 16),
+        fontsize=12,
+        fname="training_image_samples",
+    )
+
+
 @hydra.main(config_path=CONFIG_PATH, config_name="config")
 def train(cfg: DictConfig):
     """Train a model.
@@ -25,6 +64,7 @@ def train(cfg: DictConfig):
 
     # init data
     dataset = CoverDataset(**config["dataset"])
+    generate_training_images_grid(dataset)
 
     # init model
     model = GAN(**config["model"])

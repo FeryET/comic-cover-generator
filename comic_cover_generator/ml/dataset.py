@@ -82,6 +82,7 @@ class CoverDatasetItem(TypedDict):
 
     image: Tensor
     title_seq: Tensor
+    full_title: str
 
 
 class CoverDataset(Dataset):
@@ -231,9 +232,10 @@ class CoverDataset(Dataset):
             image = Image.open(self.data.images[index]).convert("RGB")
             image = _resize_image_to_shape(image, self.image_size)
 
+        full_title = self.data.metadata.iloc[index]["full_title"]
         title_seq = _map_string_to_id_tensor(
-            self.data.metadata.iloc[index]["full_title"],
+            full_title,
             max_len=self.max_title_seq_length,
         )
         image = self.image_transforms(image)
-        return {"image": image, "title_seq": title_seq}
+        return {"image": image, "title_seq": title_seq, "full_title": full_title}
