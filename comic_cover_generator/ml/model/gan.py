@@ -58,7 +58,7 @@ class GAN(pl.LightningModule):
         """
         super().__init__()
 
-        self.fid = FrechetInceptionDistance(feature=192, compute_on_step=False)
+        self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
 
         self.train_dataset = None
         self.batch_size = batch_size
@@ -72,10 +72,7 @@ class GAN(pl.LightningModule):
         if optimizer_params is None:
             default_params = {
                 "cls": torch.optim.AdamW,
-                "kwargs": {
-                    "lr": 3e-4,
-                    "weight_decay": 0.01,
-                },
+                "kwargs": {"lr": 3e-4, "weight_decay": 0.01, "betas": (0.0, 0.9)},
                 "n_repeated_updates": 1,
             }
             optimizer_params = OrderedDict(

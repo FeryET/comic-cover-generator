@@ -10,6 +10,7 @@ from comic_cover_generator.ml.model.base import (
     ResNetScaler,
     Seq2Vec,
 )
+from comic_cover_generator.ml.model.utils import weights_init
 
 
 class Generator(nn.Module, Freezeable):
@@ -60,6 +61,8 @@ class Generator(nn.Module, Freezeable):
             nn.ConvTranspose2d(128, 3, kernel_size=4, stride=2, padding=1),
             nn.Tanh(),
         )
+
+        self.apply(weights_init)
 
     def forward(self, z: torch.Tensor, title_seq: torch.Tensor) -> torch.Tensor:
         """Map a noise and a sequence to an image.

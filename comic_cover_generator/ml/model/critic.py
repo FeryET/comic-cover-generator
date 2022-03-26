@@ -5,6 +5,7 @@ import torch
 from torch import nn
 
 from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock, ResNetScaler
+from comic_cover_generator.ml.model.utils import weights_init
 
 
 class Critic(nn.Module, Freezeable):
@@ -34,6 +35,8 @@ class Critic(nn.Module, Freezeable):
             nn.Dropout(),
             nn.Linear(512, 1),
         )
+
+        self.apply(weights_init)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.

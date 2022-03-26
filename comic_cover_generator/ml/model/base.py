@@ -111,7 +111,7 @@ class ResNetBlock(nn.Module):
                 stride=1,
                 bias=False,
             ),
-            norm_type(intermediate_channels),
+            norm_type(intermediate_channels, affine=True),
             nn.LeakyReLU(negative_slope=0.1),
             nn.Conv2d(
                 intermediate_channels,
@@ -121,7 +121,7 @@ class ResNetBlock(nn.Module):
                 stride=1,
                 bias=False,
             ),
-            norm_type(channels),
+            norm_type(channels, affine=True),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
