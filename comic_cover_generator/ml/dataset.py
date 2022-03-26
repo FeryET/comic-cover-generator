@@ -145,7 +145,7 @@ class CoverDataset(Dataset):
         images_folder: str,
         preload_images=True,
         preload_path="cache/",
-        image_size: Tuple[int, int] = (184, 128),
+        image_size: Tuple[int, int] = (92, 64),
         max_title_seq_length: int = 30,
         image_transforms: vision_transforms.Compose = None,
     ) -> None:

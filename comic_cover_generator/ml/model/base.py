@@ -148,6 +148,7 @@ class ResNetScaler(nn.Module):
         kernel_size: int,
         stride: int,
         padding: int,
+        **conv_params,
     ) -> None:
         """Initialize a resnet scaler layer.
 
@@ -170,7 +171,13 @@ class ResNetScaler(nn.Module):
             raise KeyError("scale_type can only be either of 'down' or 'up'.")
         self.conv = nn.Sequential(
             conv_type(
-                in_channels, out_channels, kernel_size, stride, padding, bias=False
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride,
+                padding,
+                bias=False,
+                **conv_params,
             ),
             norm_type(out_channels, affine=True),
             nn.LeakyReLU(negative_slope=0.1),

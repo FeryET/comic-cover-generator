@@ -22,4 +22,4 @@ def random_state(seed):
 
 @pytest.fixture(scope="session", autouse=True)
 def image_size():
-    return (184, 128)
+    return (92, 64)

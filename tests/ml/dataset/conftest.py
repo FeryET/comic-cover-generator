@@ -39,7 +39,7 @@ def metadata_dataframe(metadata_csv, images_folder, random_state, image_size):
     df.to_csv(metadata_csv, index_label=False)
 
     for row in df.itertuples():
-        curr_img_size = random_state.integers(0, image_size, len(image_size))
+        curr_img_size = random_state.integers(10, image_size, len(image_size))
         img = random_state.integers(0, 256, (*curr_img_size, 3)).astype(np.uint8)
         Image.fromarray(img).save(row.image_path)
 

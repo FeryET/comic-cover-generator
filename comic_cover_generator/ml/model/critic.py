@@ -10,25 +10,29 @@ from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock, ResNetS
 class Critic(nn.Module, Freezeable):
     """critic Model based on MobileNetV3."""
 
-    input_shape: Tuple[int, int] = (128, 128)
+    input_shape: Tuple[int, int] = (64, 64)
 
     def __init__(self) -> None:
         """Initialize an instance."""
         super().__init__()
         self.features = nn.Sequential(
-            ResNetScaler("down", 3, 24, 7, stride=4, padding=2),
-            # 32 x 32
-            nn.Sequential(*[ResNetBlock("critic", 24, expansion=1) for _ in range(2)]),
-            ResNetScaler("down", 24, 96, 5, stride=4, padding=1),
+            # 64 x 64
+            ResNetScaler("down", 3, 128, 7, stride=4, padding=3),
+            # 16 x 16
+            nn.Sequential(*[ResNetBlock("critic", 128, expansion=1) for _ in range(2)]),
+            ResNetScaler("down", 128, 256, 3, stride=2, padding=1),
             # 8 x 8
-            nn.Sequential(*[ResNetBlock("critic", 96, expansion=1) for _ in range(2)]),
-            ResNetScaler("down", 96, 192, 3, stride=2, padding=1),
+            nn.Sequential(*[ResNetBlock("critic", 256, expansion=1) for _ in range(3)]),
+            ResNetScaler("down", 256, 512, 3, stride=2, padding=1),
             # 4 x 4
-            nn.Sequential(*[ResNetBlock("critic", 192, expansion=1) for _ in range(2)]),
+            nn.Sequential(*[ResNetBlock("critic", 512, expansion=2) for _ in range(4)]),
         )
 
         self.clf = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Dropout(), nn.Linear(192, 1)
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Dropout(),
+            nn.Linear(512, 1),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

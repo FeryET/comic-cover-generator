@@ -28,7 +28,7 @@ def gen():
 
 
 @torch.no_grad()
-def test_generator_resizer_shape_match_critic_input_shape(gen):
+def test_generator_output_shape_match_critic_input_shape(gen):
     assert (
         gen(
             torch.rand(1, gen.latent_dim),
