@@ -134,17 +134,20 @@ class GAN(pl.LightningModule):
             for _, v in self.optimizer_params.items()
         ]
 
-    def forward(self, z: torch.Tensor, seq: Sequence[torch.Tensor]) -> torch.Tensor:
+    def forward(
+        self, z: torch.Tensor, seq: Sequence[torch.Tensor], n: torch.Tensor
+    ) -> torch.Tensor:
         """Forward calls only the generator.
 
         Args:
-            z (torch.Tensor): noise input.
+            z (torch.Tensor): Latent noise input.
             seq (Sequence[torch.Tensor]): sequence input.
+            n (torch.Tensor): Synthesis noise input.
 
         Returns:
             torch.Tensor: generated image.
         """
-        return self.generator(z, seq)
+        return self.generator(z, seq, n)
 
     def training_step(
         self, batch: CoverDatasetBatch, batch_idx: int, optimizer_idx: int
@@ -261,11 +264,12 @@ class GAN(pl.LightningModule):
 
         w = next(filter(lambda x: x.requires_grad, self.parameters()))
         z = self.validation_data.z.type_as(w).to(w.device)
+        n = self.validation_data.noise.type_as(w).to(w.device)
         seq = [s.to(w.device) for s in self.validation_data.seq]
 
         # log sampled images
         with torch.no_grad():
-            sample_imgs = self(z, seq)
+            sample_imgs = self(z, seq, n)
 
         grid = torchvision.utils.make_grid(
             sample_imgs, nrow=4, value_range=(-1, 1), normalize=True
