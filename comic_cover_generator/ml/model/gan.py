@@ -117,7 +117,7 @@ class GAN(pl.LightningModule):
                 key=lambda x: x.size(0),
                 reverse=True,
             ),
-            torch.empty(8, Generator.noise_dim).normal_(mean=0.0, std=1.0),
+            torch.empty(8, *Generator.output_shape).normal_(mean=0.0, std=1.0),
         )
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
@@ -187,7 +187,7 @@ class GAN(pl.LightningModule):
 
         n = torch.empty(
             reals.size(0),
-            self.generator.noise_dim,
+            *self.generator.output_shape,
             dtype=reals.dtype,
             device=reals.device,
         ).normal_(mean=0, std=1)
