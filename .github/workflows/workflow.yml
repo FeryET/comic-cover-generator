@@ -45,7 +45,7 @@ jobs:
           environment-file: environment.yml
           use-only-tar-bz2: true # IMPORTANT: This needs to be set for caching to work properly!
           auto-activate-base: false
-
+          use-mamba: true
 
       - name: Run Unittests
         run: PYTHONPATH=. python -m pytest tests/  -q --no-summary --no-header --tb=line
