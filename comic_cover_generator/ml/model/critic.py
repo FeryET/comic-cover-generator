@@ -77,13 +77,13 @@ class Critic(nn.Module, Freezeable):
             # 64x64
             3,
             # 32x32
-            64,
-            # 16x16
             128,
-            # 8x8
+            # 16x16
             256,
-            # 4x4
+            # 8x8
             512,
+            # 4x4
+            1024,
             # 2x2
         ]
         channels = list(zip(channels, channels[1:]))
@@ -95,7 +95,7 @@ class Critic(nn.Module, Freezeable):
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.Dropout(),
-            nn.Linear(512, 1),
+            nn.Linear(1024, 1),
         )
 
         self.apply(weights_init)
