@@ -25,10 +25,17 @@ class Generator(nn.Module, Freezeable):
         """Initialize an instance."""
         super().__init__()
 
+        self.register_parameter(
+            "cte",
+            nn.parameter.Parameter(
+                torch.empty(1, 1024, 4, 4).normal_(mean=0, std=1), requires_grad=True
+            ),
+        )
+
         self.title_embed = nn.Sequential(
             Seq2Vec(self.sequence_embed_dim),
-            nn.Unflatten(-1, (8, 4, 4)),
-            nn.Conv2d(8, 1024, kernel_size=1, padding=0, stride=1, bias=False),
+            nn.Linear(self.sequence_embed_dim, self.w_dim),
+            nn.LeakyReLU(negative_slope=0.1),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
@@ -78,8 +85,13 @@ class Generator(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        w = self.latent_mapper(F.normalize(z, dim=-1))
-        x = self.title_embed(title_seq)
+        B = z.size(0)
+        # enriching the latent vector
+        embed = self.title_embed(title_seq)
+        mapped = self.latent_mapper(F.normalize(z, dim=-1))
+        w = mapped + embed
+        # upscaling the parameter
+        x = self.cte.repeat(B, 1, 1, 1)
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, n, rgb)
