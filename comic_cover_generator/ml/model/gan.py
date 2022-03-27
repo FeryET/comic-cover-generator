@@ -35,7 +35,6 @@ class ValidationData:
 
     z: torch.Tensor
     seq: Sequence[torch.Tensor]
-    noise: torch.Tensor
 
 
 # TODO: Make this class configurable.
@@ -117,7 +116,6 @@ class GAN(pl.LightningModule):
                 key=lambda x: x.size(0),
                 reverse=True,
             ),
-            torch.empty(8, *Generator.output_shape).normal_(mean=0.0, std=1.0),
         )
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
@@ -135,19 +133,20 @@ class GAN(pl.LightningModule):
         ]
 
     def forward(
-        self, z: torch.Tensor, seq: Sequence[torch.Tensor], n: torch.Tensor
+        self,
+        z: torch.Tensor,
+        seq: Sequence[torch.Tensor],
     ) -> torch.Tensor:
         """Forward calls only the generator.
 
         Args:
             z (torch.Tensor): Latent noise input.
             seq (Sequence[torch.Tensor]): sequence input.
-            n (torch.Tensor): Synthesis noise input.
 
         Returns:
             torch.Tensor: generated image.
         """
-        return self.generator(z, seq, n)
+        return self.generator(z, seq)
 
     def training_step(
         self, batch: CoverDatasetBatch, batch_idx: int, optimizer_idx: int
@@ -185,13 +184,6 @@ class GAN(pl.LightningModule):
             device=reals.device,
         ).normal_(mean=0, std=1)
 
-        n = torch.empty(
-            reals.size(0),
-            *self.generator.output_shape,
-            dtype=reals.dtype,
-            device=reals.device,
-        ).normal_(mean=0, std=1)
-
         # train generator
         if optimizer_idx == 0:
 
@@ -201,7 +193,7 @@ class GAN(pl.LightningModule):
             self.generator.unfreeze()
             self.generator.train()
 
-            fake = self.generator(z, seq, n)
+            fake = self.generator(z, seq)
             critic_gen_fake = self.critic(fake).reshape(-1)
             loss_gen = generator_loss_fn(critic_gen_fake)
             tqdm_dict = {"generator_loss": loss_gen.detach()}
@@ -226,7 +218,7 @@ class GAN(pl.LightningModule):
             self.generator.freeze()
             self.generator.eval()
 
-            fakes = self.generator(z, seq, n)
+            fakes = self.generator(z, seq)
 
             fakes = diff_augment(fakes, self.augmentation_policy)
             reals = diff_augment(reals, self.augmentation_policy)
@@ -264,12 +256,11 @@ class GAN(pl.LightningModule):
 
         w = next(filter(lambda x: x.requires_grad, self.parameters()))
         z = self.validation_data.z.type_as(w).to(w.device)
-        n = self.validation_data.noise.type_as(w).to(w.device)
         seq = [s.to(w.device) for s in self.validation_data.seq]
 
         # log sampled images
         with torch.no_grad():
-            sample_imgs = self(z, seq, n)
+            sample_imgs = self(z, seq)
 
         grid = torchvision.utils.make_grid(
             sample_imgs, nrow=4, value_range=(-1, 1), normalize=True

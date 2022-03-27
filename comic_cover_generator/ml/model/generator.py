@@ -52,41 +52,32 @@ class Generator(nn.Module, Freezeable):
         ]
         channels = list(zip(channels, channels[1:]))
 
-        img_dims = [4, 8, 16, 32, 64]
-        img_dims = list(zip(img_dims, img_dims[1:]))
-
         self.features = nn.ModuleList()
-        for (in_ch, out_ch), (in_dim, out_dim) in zip(channels, img_dims):
+        for in_ch, out_ch in channels:
             self.features.append(
                 GeneratorBlock(
                     in_channels=in_ch,
                     out_channels=out_ch,
                     w_dim=self.w_dim,
-                    input_shape=(in_dim, in_dim),
-                    output_shape=(out_dim, out_dim),
                 )
             )
 
         self.apply(weights_init)
 
     def forward(
-        self, z: torch.Tensor, title_seq: torch.Tensor, n: torch.Tensor
+        self,
+        z: torch.Tensor,
+        title_seq: torch.Tensor,
     ) -> torch.Tensor:
         """Map a noise and a sequence to an image.
 
         Args:
             z (torch.Tensor): Latent noise input.
             title_seq (torch.Tensor): Title sequence.
-            n (torch.Tensor): Synthesis noise input. Either 4D with shape [B, 1, H, W] or 3D with [B, H, W].
 
         Returns:
             torch.Tensor:
         """
-        if n.ndim == 3:
-            n = n.unsqueeze(1)
-        if n.size()[2:] != self.output_shape:
-            raise RuntimeError("Mismatch between generated noise and output shape.")
-
         B = z.size(0)
         # enriching the latent vector
         embed = self.title_embed(title_seq)
@@ -96,7 +87,7 @@ class Generator(nn.Module, Freezeable):
         x = self.cte.repeat(B, 1, 1, 1)
         rgb = None
         for f in self.features:
-            x, rgb = f(x, w, n, rgb)
+            x, rgb = f(x, w, rgb)
         return rgb
 
     def freeze(self):
@@ -158,8 +149,6 @@ class GeneratorBlock(nn.Module):
         in_channels: int,
         out_channels: int,
         w_dim: int,
-        input_shape: Tuple[int, int],
-        output_shape: Tuple[int, int],
     ) -> None:
         """Intiailizes a generator block.
 
@@ -167,8 +156,6 @@ class GeneratorBlock(nn.Module):
             in_channels (int):
             out_channels (int):
             w_dim (int):
-            input_shape (Tuple[int, int]):
-            output_shape (Tuple[int, int]):
 
         Returns:
             None:
@@ -176,7 +163,6 @@ class GeneratorBlock(nn.Module):
         super().__init__()
         self.style1 = StyleBlock(
             w_dim,
-            output_shape=input_shape,
             in_channels=in_channels,
             out_channels=in_channels,
             kernel_size=3,
@@ -185,7 +171,6 @@ class GeneratorBlock(nn.Module):
         )
         self.style2 = StyleBlock(
             w_dim,
-            output_shape=output_shape,
             upsample=True,
             in_channels=in_channels,
             out_channels=out_channels,
@@ -204,7 +189,6 @@ class GeneratorBlock(nn.Module):
         self,
         x: torch.Tensor,
         w: torch.Tensor,
-        n: torch.Tensor,
         rgb: torch.Tensor = None,
     ) -> GeneratorResult:
         """Forward call of generator block.
@@ -212,14 +196,13 @@ class GeneratorBlock(nn.Module):
         Args:
             x (torch.Tensor): input 4D tensor.
             w (torch.Tensor): input 2D latent tensor.
-            n (torch.Tensor): input 2D noise tensor.
             rgb (torch.Tensor, optional): residual input. Defaults to None.
 
         Returns:
             GeneratorResult:
         """
-        x = self.style1(x, w, n)
-        x = self.style2(x, w, n)
+        x = self.style1(x, w)
+        x = self.style2(x, w)
         if rgb is not None:
             rgb = self.to_rgb(x) + self.upsample(rgb)
             rgb = rgb * self.residual_scaler
@@ -228,67 +211,39 @@ class GeneratorBlock(nn.Module):
         return GeneratorBlock.GeneratorResult(x=x, rgb=rgb)
 
 
-def center_crop(noise: torch.Tensor, crop_shape: torch.Tensor) -> torch.Tensor:
-    """Apply a center crop transformation on an input.
-
-    Args:
-        noise (torch.Tensor):
-        crop_shape (torch.Tensor):
-
-    Returns:
-        torch.Tensor:
-    """
-    diff = torch.as_tensor(noise.size()[2:], device=noise.device) - crop_shape
-    crop_start = diff.div(2, rounding_mode="floor")
-    crop_end = crop_start + crop_shape
-    return noise[
-        ...,
-        crop_start[0] : crop_end[0],
-        crop_start[1] : crop_end[1],
-    ]
-
-
 class AdditiveNoiseBlock(nn.Module):
     """StyleGAN additive noise block."""
 
-    def __init__(self, output_shape: Tuple[int, int]) -> None:
-        """Initialize the additive noise module.
-
-        Args:
-            output_shape (Tuple[int, int]): The output shape of the noise block.
-        """
+    def __init__(self) -> None:
+        """Initialize the additive noise module."""
         super().__init__()
         self.register_parameter(
-            "coef", nn.parameter.Parameter(torch.rand(1), requires_grad=True)
-        )
-        self.register_buffer(
-            "output_shape", torch.as_tensor(output_shape, dtype=torch.long)
+            "coef",
+            nn.parameter.Parameter(torch.rand(1), requires_grad=True),
         )
 
-    def forward(self, noise: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute a weighted view of the center cropped noise.
 
         Args:
-            noise (torch.Tensor): 4D noise input. [B, 1, H, W]
+            x (torch.Tensor): 4D feature maps. [B, C, H, W]
 
         Returns:
             torch.Tensor: Cropped noise.
         """
-        noise = center_crop(noise, self.output_shape)
+        noise = torch.empty(
+            x.size(0), 1, x.size(2), x.size(3), dtype=x.dtype, device=x.device
+        ).normal_()
         noise = noise * self.coef
-        return noise
+        x = noise + x
+        return x
 
 
 class StyleBlock(nn.Module):
     """Style block module."""
 
     def __init__(
-        self,
-        w_dim: int,
-        output_shape: Tuple[int, int],
-        eps: float = 1e-5,
-        upsample: bool = False,
-        **conv_params
+        self, w_dim: int, eps: float = 1e-5, upsample: bool = False, **conv_params
     ) -> None:
         """Intiailize a generator block module.
 
@@ -301,7 +256,7 @@ class StyleBlock(nn.Module):
         super().__init__()
 
         self.mod_conv = ModulatedConv2D(eps=eps, **conv_params)
-        self.B = AdditiveNoiseBlock(output_shape)
+        self.B = AdditiveNoiseBlock()
         self.A = nn.Linear(w_dim, self.mod_conv.conv.in_channels)
 
         self.activation = nn.LeakyReLU(negative_slope=0.1)
@@ -310,15 +265,12 @@ class StyleBlock(nn.Module):
             nn.Upsample(scale_factor=2, mode="bilinear") if upsample else None
         )
 
-    def forward(
-        self, x: torch.Tensor, w: torch.Tensor, n: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
         """Apply a modulated block for the generator.
 
         Args:
             x (torch.Tensor): Input 4D tensor.
             w (torch.Tensor): Input fine-grained latent 2D tensor.
-            n (torch.Tensor): Input noise tensor.
 
         Returns:
             torch.Tensor: torch.Tensor
@@ -330,6 +282,6 @@ class StyleBlock(nn.Module):
         # add conv and add bias
         x = self.mod_conv(x, scores)
         # add noise
-        x = x + self.B(n)
+        x = self.B(x)
 
         return self.activation(x)
