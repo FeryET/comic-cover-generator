@@ -3,6 +3,7 @@ from typing import Sequence
 
 import torch
 from torch import Tensor, nn
+from torch.nn import functional as F
 from torch.nn.utils.rnn import (
     PackedSequence,
     _packed_sequence_init,
@@ -23,176 +24,6 @@ class Freezeable(Protocol):
     def unfreeze(self):
         """Unfreezing method."""
         ...
-
-
-class DepthwiseSeperableConv2d(nn.Module):
-    """Depthwise seperable convolution layer."""
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int,
-        stride: int,
-        padding: int,
-        bias: bool = False,
-    ) -> None:
-        """Initialize a depth wise seperable convolution layer.
-
-        Args:
-            in_channels (int):
-            out_channels (int):
-            kernel_size (int):
-            stride (int):
-            padding (int):
-            bias (bool, optional): Defaults to False.
-        """  # noqa: D417
-        super().__init__()
-        self.depthwise = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=in_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            bias=bias,
-            groups=in_channels,
-        )
-
-        self.pointwise = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=1,
-            padding=0,
-            stride=1,
-            bias=bias,
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute the forward result of the layer.
-
-        Args:
-            x (torch.Tensor): input tensor.
-
-        Returns:
-            torch.Tensor:
-        """
-        return self.pointwise(self.depthwise(x))
-
-
-class ResNetBlock(nn.Module):
-    """Resnet block layer."""
-
-    def __init__(self, block_type: str, channels: int, expansion: int = 2) -> None:
-        """Initialize a resnet block.
-
-        Args:
-            block_type (str): one of "gen" or "critic".
-            channels (int): channels in resnent block.
-            expansion (int): the intermediate channel expansion factor.
-        """
-        if block_type == "gen":
-            norm_type = nn.BatchNorm2d
-        elif block_type == "critic":
-            norm_type = nn.InstanceNorm2d
-        else:
-            raise ValueError(
-                f"block type {block_type} is not accepted. One of 'gen' or 'critic'"
-                " should be given."
-            )
-
-        intermediate_channels = channels * expansion
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(
-                in_channels=channels,
-                out_channels=intermediate_channels,
-                kernel_size=3,
-                padding=1,
-                stride=1,
-                bias=False,
-            ),
-            norm_type(intermediate_channels, affine=True),
-            nn.LeakyReLU(negative_slope=0.1),
-            nn.Conv2d(
-                intermediate_channels,
-                channels,
-                kernel_size=1,
-                padding=0,
-                stride=1,
-                bias=False,
-            ),
-            norm_type(channels, affine=True),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward of resnet block.
-
-        Args:
-            x (torch.Tensor):
-
-        Returns:
-            torch.Tensor:
-        """
-        identity = x
-        return identity + self.block(x)
-
-
-class ResNetScaler(nn.Module):
-    """ResNet scaler layer."""
-
-    def __init__(
-        self,
-        scale_type: str,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int,
-        stride: int,
-        padding: int,
-        **conv_params,
-    ) -> None:
-        """Initialize a resnet scaler layer.
-
-        Args:
-            scale_type (str): Whether to downsample or upsample. acceptable values are 'up' and 'down'.
-            in_channels (int): Number of channels for input.
-            out_channels (int): Number of channels for output.
-            kernel_size (int): Convolution kernel size.
-            stride (int): Convolution stride.
-            padding (int): Convolution padding.
-        """
-        super().__init__()
-        if scale_type == "down":
-            conv_type = nn.Conv2d
-            norm_type = nn.InstanceNorm2d
-        elif scale_type == "up":
-            conv_type = nn.ConvTranspose2d
-            norm_type = nn.BatchNorm2d
-        else:
-            raise KeyError("scale_type can only be either of 'down' or 'up'.")
-        self.conv = nn.Sequential(
-            conv_type(
-                in_channels,
-                out_channels,
-                kernel_size,
-                stride,
-                padding,
-                bias=False,
-                **conv_params,
-            ),
-            norm_type(out_channels, affine=True),
-            nn.LeakyReLU(negative_slope=0.1),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward call of resnet scaler layer.
-
-        Args:
-            x (torch.Tensor):
-
-        Returns:
-            torch.Tensor:
-        """
-        return self.conv(x)
 
 
 class PackSequenceEmbedding(nn.Embedding):
@@ -271,4 +102,53 @@ class Seq2Vec(nn.Module):
         # average the directions
         x = (x[..., : self.hidden_size] + x[..., self.hidden_size :]) / 2
 
+        return x
+
+
+class ModulatedConv2D(nn.Module):
+    """Modulated convolution layer."""
+
+    def __init__(self, eps: float = 1e-5, **conv_params) -> None:
+        """Initializes a modulated convolution.
+
+        Args:
+            eps (float, optional): _description_. Defaults to 1e-5.
+
+        Returns:
+            None:
+        """
+        super().__init__()
+        self.eps = eps
+        self.conv = nn.Conv2d(**conv_params)
+
+    def forward(self, x: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
+        """Compute the modulated convolution.
+
+        Args:
+            x (torch.Tensor): 4D convolution input.
+            s (torch.Tensor): 2D scaling factor.
+
+        Returns:
+            torch.Tensor: Modulated convolution result.
+        """
+        B = x.size(0)
+        w = self.conv.weight.unsqueeze(0)
+        w = w * s.reshape(B, 1, -1, 1, 1)
+        # sigma is 1 / sqrt(sum(w^2))
+        sigma = w.square().sum(dim=(2, 3, 4)).add(self.eps).rsqrt()
+        x = x * s.reshape(B, -1, 1, 1)
+        x = F.conv2d(
+            input=x,
+            weight=self.conv.weight.to(x.dtype),
+            bias=None,
+            stride=self.conv.stride,
+            padding=self.conv.padding,
+            dilation=self.conv.dilation,
+            groups=self.conv.groups,
+        )
+
+        # add bias too if applicable
+        x = x * sigma.to(x.dtype).reshape(B, -1, 1, 1) + self.conv.bias.reshape(
+            1, -1, 1, 1
+        )
         return x

@@ -35,6 +35,7 @@ class ValidationData:
 
     z: torch.Tensor
     seq: Sequence[torch.Tensor]
+    noise: torch.Tensor
 
 
 # TODO: Make this class configurable.
@@ -58,16 +59,16 @@ class GAN(pl.LightningModule):
         """
         super().__init__()
 
-        self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
-
         self.train_dataset = None
         self.batch_size = batch_size
         self.gradient_penalty_coef = gradient_penalty_coef
+        self.save_hyperparameters()
 
         self.generator = Generator()
         self.critic = Critic()
 
-        self.save_hyperparameters()
+        self.generator.unfreeze()
+        self.critic.unfreeze()
 
         if optimizer_params is None:
             default_params = {
@@ -91,6 +92,8 @@ class GAN(pl.LightningModule):
             AugmentPolicy.translation.value,
         ]
 
+        self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
+
     def attach_train_dataset_and_generate_validtaion_data(
         self, train_dataset: CoverDataset, val_gen_seed: int = 42
     ):
@@ -102,18 +105,19 @@ class GAN(pl.LightningModule):
         """
         self.train_dataset = train_dataset
         rng = np.random.default_rng(seed=val_gen_seed)
-        seq = sorted(
-            [
-                self.train_dataset[idx]["title_seq"]
-                for idx in rng.choice(
-                    range(len(self.train_dataset)), size=8, replace=False
-                )
-            ],
-            key=lambda x: x.size(0),
-            reverse=True,
-        )
         self.validation_data = ValidationData(
-            torch.empty(8, Generator.latent_dim).normal_(mean=0.0, std=1.0), seq
+            torch.empty(8, Generator.latent_dim).normal_(mean=0.0, std=1.0),
+            sorted(
+                [
+                    self.train_dataset[idx]["title_seq"]
+                    for idx in rng.choice(
+                        range(len(self.train_dataset)), size=8, replace=False
+                    )
+                ],
+                key=lambda x: x.size(0),
+                reverse=True,
+            ),
+            torch.empty(8, Generator.noise_dim).normal_(mean=0.0, std=1.0),
         )
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
@@ -178,6 +182,13 @@ class GAN(pl.LightningModule):
             device=reals.device,
         ).normal_(mean=0, std=1)
 
+        n = torch.empty(
+            reals.size(0),
+            self.generator.noise_dim,
+            dtype=reals.dtype,
+            device=reals.device,
+        ).normal_(mean=0, std=1)
+
         # train generator
         if optimizer_idx == 0:
 
@@ -187,7 +198,7 @@ class GAN(pl.LightningModule):
             self.generator.unfreeze()
             self.generator.train()
 
-            fake = self.generator(z, seq)
+            fake = self.generator(z, seq, n)
             critic_gen_fake = self.critic(fake).reshape(-1)
             loss_gen = generator_loss_fn(critic_gen_fake)
             tqdm_dict = {"generator_loss": loss_gen.detach()}
@@ -212,7 +223,7 @@ class GAN(pl.LightningModule):
             self.generator.freeze()
             self.generator.eval()
 
-            fakes = self.generator(z, seq)
+            fakes = self.generator(z, seq, n)
 
             fakes = diff_augment(fakes, self.augmentation_policy)
             reals = diff_augment(reals, self.augmentation_policy)

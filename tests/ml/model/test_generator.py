@@ -28,11 +28,12 @@ def gen():
 
 
 @torch.no_grad()
-def test_generator_output_shape_match_critic_input_shape(gen):
+def test_generator_output_shape_match_critic_input_shape(gen: Generator):
     assert (
-        gen(
+        gen.forward(
             torch.rand(1, gen.latent_dim),
             [torch.randint(0, 256, [random.randint(1, 3)])],
+            torch.rand(1, gen.noise_dim),
         ).size()[-2:]
         == Critic.input_shape
     )
