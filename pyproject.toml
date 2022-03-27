@@ -33,7 +33,7 @@ exclude_lines = [
 directory = "cov_html"
 
 [tool.black]
-experimental-string-processing = true
+preview = true
 include = '\.pyi?$'
 line-length = 88
 
