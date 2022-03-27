@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from comic_cover_generator.ml.model.base import Freezeable, ResNetBlock, ResNetScaler
+from comic_cover_generator.ml.model.base import Freezeable
 from comic_cover_generator.ml.model.utils import weights_init
 
 
@@ -16,18 +16,7 @@ class Critic(nn.Module, Freezeable):
     def __init__(self) -> None:
         """Initialize an instance."""
         super().__init__()
-        self.features = nn.Sequential(
-            # 64 x 64
-            ResNetScaler("down", 3, 128, 7, stride=4, padding=3),
-            # 16 x 16
-            nn.Sequential(*[ResNetBlock("critic", 128, expansion=1) for _ in range(2)]),
-            ResNetScaler("down", 128, 256, 3, stride=2, padding=1),
-            # 8 x 8
-            nn.Sequential(*[ResNetBlock("critic", 256, expansion=1) for _ in range(3)]),
-            ResNetScaler("down", 256, 512, 3, stride=2, padding=1),
-            # 4 x 4
-            nn.Sequential(*[ResNetBlock("critic", 512, expansion=2) for _ in range(4)]),
-        )
+        self.features = nn.Sequential(nn.Conv2d(3, 512, 1))
 
         self.clf = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),

@@ -58,16 +58,16 @@ class GAN(pl.LightningModule):
         """
         super().__init__()
 
-        self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
-
         self.train_dataset = None
         self.batch_size = batch_size
         self.gradient_penalty_coef = gradient_penalty_coef
+        self.save_hyperparameters()
 
         self.generator = Generator()
         self.critic = Critic()
 
-        self.save_hyperparameters()
+        self.generator.unfreeze()
+        self.critic.unfreeze()
 
         if optimizer_params is None:
             default_params = {
@@ -90,6 +90,8 @@ class GAN(pl.LightningModule):
             AugmentPolicy.cutout.value,
             AugmentPolicy.translation.value,
         ]
+
+        self.fid = FrechetInceptionDistance(feature=64, compute_on_step=False)
 
     def attach_train_dataset_and_generate_validtaion_data(
         self, train_dataset: CoverDataset, val_gen_seed: int = 42
