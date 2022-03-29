@@ -289,14 +289,14 @@ class StyleBlock(nn.Module):
     """Style block module."""
 
     def __init__(
-        self, w_dim: int, eps: float = 1e-5, upsample: bool = False, **conv_params
+        self, w_dim: int, eps: float = 1e-8, upsample: bool = False, **conv_params
     ) -> None:
         """Intiailize a generator block module.
 
         Args:
             w_dim (int): Fine grained latent dimension.
             output_shape (Tuple[int, int]): The dimensions of the output of the block.
-            eps (float, optional): Defaults to 1e-5.
+            eps (float, optional): Defaults to 1e-8.
             upsample (bool, optional): Whether to upsample the input. Defaults to False.
         """
         super().__init__()

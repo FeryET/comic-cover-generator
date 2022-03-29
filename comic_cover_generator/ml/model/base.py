@@ -210,11 +210,11 @@ class Seq2Vec(nn.Module):
 class ModulatedConv2D(nn.Module):
     """Modulated convolution layer."""
 
-    def __init__(self, eps: float = 1e-5, **conv_params) -> None:
+    def __init__(self, eps: float = 1e-8, **conv_params) -> None:
         """Initializes a modulated convolution.
 
         Args:
-            eps (float, optional): Defaults to 1e-5.
+            eps (float, optional): Defaults to 1e-8.
 
         Returns:
             None:
