@@ -36,7 +36,7 @@ class Generator(nn.Module, Freezeable):
         self,
         latent_dim: int = 256,
         w_dim: int = 256,
-        channels: Tuple[int, ...] = (1024, 512, 256, 128, 3),
+        channels: Tuple[int, ...] = (512, 256, 128, 64, 32),
         output_shape: Tuple[int, int] = (64, 64),
         sequence_gru_hidden_size: int = 64,
         sequence_embed_dim: int = 32,
@@ -61,10 +61,10 @@ class Generator(nn.Module, Freezeable):
         self.output_shape = output_shape
         self.mapping_network_lr_coef = mapping_network_lr_coef
 
-        first_channels = channels[0]
+        self.channels = channels
 
         self.cte = nn.Parameter(
-            torch.ones(1, first_channels, 4, 4),
+            torch.ones(1, self.channels[0], 4, 4),
             requires_grad=True,
         )
 
@@ -74,9 +74,9 @@ class Generator(nn.Module, Freezeable):
                 hidden_size=sequence_gru_hidden_size,
                 num_layers=sequence_gru_layers,
             ),
-            EqualLinear(self.seq2vec_dim, first_channels),
+            EqualLinear(self.seq2vec_dim, self.channels[0]),
             nn.LeakyReLU(negative_slope=0.1),
-            nn.Unflatten(-1, (first_channels, 1, 1)),
+            nn.Unflatten(-1, (self.channels[0], 1, 1)),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
@@ -88,8 +88,12 @@ class Generator(nn.Module, Freezeable):
                     in_channels=in_ch,
                     out_channels=out_ch,
                     w_dim=self.w_dim,
-                )
+                ),
             )
+
+        self.to_rgb = (
+            nn.Conv2d(self.channels[-1], 3, kernel_size=1, padding=0, stride=1),
+        )
 
     def forward(
         self,
@@ -107,7 +111,7 @@ class Generator(nn.Module, Freezeable):
         """
         B = z.size(0)
         # enriching the latent vector
-        w = self.latent_mapper(F.normalize(z, dim=-1))
+        w = self.latent_mapper(z)
         # repeating the constant parameter for whole batch size.
         x = self.cte.repeat(B, 1, 1, 1)
         # applying title embedding to the sequence.
@@ -140,10 +144,9 @@ class Generator(nn.Module, Freezeable):
         Returns:
             Tuple[Dict[str, Any]]:
         """
-        mapping_network_params = list(self.latent_mapper.parameters())
         return [
             {
-                "params": mapping_network_params,
+                "params": list(self.latent_mapper.parameters()),
                 "lr": lr * self.mapping_network_lr_coef,
             },
             {
@@ -185,6 +188,7 @@ class LatentMapper(nn.Module):
         Returns:
             torch.Tensor: Mapped 2D tensor.
         """
+        x = F.normalize(x, dim=-1)
         return self.mapper(x)
 
 

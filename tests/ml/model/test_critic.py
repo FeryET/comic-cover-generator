@@ -8,7 +8,7 @@ from comic_cover_generator.ml.model import Critic
 
 @pytest.fixture(scope="module")
 def disc():
-    return Critic(channels=[3, 512, 512], input_shape=(8, 8))
+    return Critic(channels=[512, 512], input_shape=(8, 8))
 
 
 @pytest.fixture(scope="module")
@@ -17,8 +17,13 @@ def disc_input(disc):
 
 
 @torch.no_grad()
-def test_critic_features_forward_pass(disc: Critic, disc_input):
-    disc.features(disc_input)
+def test_critic_from_rgb_forward_pass(disc: Critic, disc_input):
+    disc.from_rgb(disc_input)
+
+
+@torch.no_grad()
+def test_critic_features_forward_pass(disc: Critic):
+    disc.features(torch.rand(1, disc.channels[0], *disc.input_shape))
 
 
 @torch.no_grad()
