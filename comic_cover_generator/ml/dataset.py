@@ -54,7 +54,7 @@ GOOD_CHARS = set(string.printable) - set(string.whitespace)
 def _map_string_to_id_tensor(title_str: str, max_len=10) -> Tensor:
     result = [
         ord(char)
-        for word in title_str.strip().split()
+        for word in title_str.strip().lower().split()
         for char in word
         if char in GOOD_CHARS
     ]

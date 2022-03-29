@@ -1,5 +1,15 @@
-batch_size: 1
-gradient_penalty_coef: 10
+generator_params:
+    latent_dim: 256
+    w_dim: 256
+    channels: [1024, 512, 256, 128, 3]
+    output_shape: [64, 64]
+    sequence_gru_hidden_size: 64
+    sequence_embed_dim: 32
+    sequence_gru_layers: 2
+    mapping_network_lr_coef: 1e-2
+critic_params:
+    channels: [3, 512, 512, 512, 512]
+    input_shape: [64, 64]
 optimizer_params:
     generator:
         cls: "${get_cls: torch.optim.AdamW}"
@@ -15,3 +25,5 @@ optimizer_params:
             lr: 3e-4
             betas: [0.0, 0.9]
             weight_decay: 0.00
+batch_size: 1
+gradient_penalty_coef: 10

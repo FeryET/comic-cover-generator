@@ -4,8 +4,8 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from comic_cover_generator.ml.model.base import Freezeable
-from comic_cover_generator.ml.model.utils import weights_init
+from comic_cover_generator.ml.model.base import EqualConv2d, EqualLinear, Freezeable
+from comic_cover_generator.typing import TypedDict
 
 
 class CriticResidualBlock(nn.Module):
@@ -15,43 +15,26 @@ class CriticResidualBlock(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        expansion_factor: int = 2,
-        n_blocks: int = 2,
     ) -> None:
         """Residual block for critic.
 
         Args:
             in_channels (int): Number of input channels.
             out_channels (int): Number of output channels.
-            expansion_factor (int, optional): Expansion factors for middle channels in residual blocks. Defaults to 2.
-            n_blocks (int, optional): Defaults to 3.
         """
         super().__init__()
-        mid_channels = in_channels * expansion_factor
 
         self.conv = nn.Sequential(
-            *[
-                nn.Sequential(
-                    nn.Conv2d(
-                        in_channels, mid_channels, kernel_size=3, stride=1, padding=1
-                    ),
-                    nn.InstanceNorm2d(mid_channels, affine=True),
-                    nn.LeakyReLU(0.1),
-                    nn.Conv2d(
-                        mid_channels, in_channels, kernel_size=1, stride=1, padding=0
-                    ),
-                )
-                for _ in range(n_blocks)
-            ]
-        )
-        self.conv.append(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1)
+            EqualConv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.LeakyReLU(0.1),
+            EqualConv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
         )
 
-        self.downsample = nn.Sequential(
-            nn.Upsample(scale_factor=0.5, mode="bilinear"),
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0),
+        self.skip = nn.Sequential(
+            EqualConv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0),
         )
+        self.downsample = nn.Upsample(scale_factor=0.5, mode="bilinear")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Residual block forward pass.
@@ -62,43 +45,46 @@ class CriticResidualBlock(nn.Module):
         Returns:
             torch.Tensor:
         """
-        return self.downsample(x) + self.conv(x)
+        return self.downsample(self.skip(x) + self.conv(x))
+
+
+class CriticParams(TypedDict):
+    """Critic constructor arguments."""
+
+    channels: Tuple[int, ...]
+    input_shape: Tuple[int, int]
 
 
 class Critic(nn.Module, Freezeable):
     """critic Model based on MobileNetV3."""
 
-    input_shape: Tuple[int, int] = (64, 64)
+    def __init__(
+        self,
+        channels: Tuple[int, ...] = (3, 512, 512, 512, 512),
+        input_shape: Tuple[int, int] = (64, 64),
+    ) -> None:
+        """Initialize a critic module.
 
-    def __init__(self) -> None:
-        """Initialize an instance."""
+        Args:
+            channels (Tuple[int, ...], optional): Inputs to the channels used in sequential blocks. Each block will halve the resolution of feature maps after applying the forward method. Defaults to (3, 512, 512, 512, 512).
+            input_shape (Tuple[int, int]): Defaults to (64, 64).
+        """
         super().__init__()
-        channels = [
-            # 64x64
-            3,
-            # 32x32
-            128,
-            # 16x16
-            256,
-            # 8x8
-            512,
-            # 4x4
-            1024,
-            # 2x2
-        ]
+
+        self.input_shape = input_shape
+        self.channels = channels
+
         channels = list(zip(channels, channels[1:]))
         self.features = nn.Sequential(
-            *[CriticResidualBlock(in_ch, out_ch, 2, 2) for in_ch, out_ch in channels]
+            *[CriticResidualBlock(in_ch, out_ch) for in_ch, out_ch in channels]
         )
 
         self.clf = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.Dropout(),
-            nn.Linear(1024, 1),
+            EqualLinear(self.channels[-1], 1),
         )
-
-        self.apply(weights_init)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function.

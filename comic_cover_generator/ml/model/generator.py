@@ -1,59 +1,88 @@
 """Generator module."""
 import math
 from collections import namedtuple
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-from comic_cover_generator.ml.model.base import Freezeable, ModulatedConv2D, Seq2Vec
-from comic_cover_generator.ml.model.utils import weights_init
+from comic_cover_generator.ml.model.base import (
+    EqualLinear,
+    Freezeable,
+    ModulatedConv2D,
+    Seq2Vec,
+)
+from comic_cover_generator.typing import TypedDict
+
+
+class GeneratorParams(TypedDict):
+    """Generator initialization arguments."""
+
+    latent_dim: int
+    w_dim: int
+    channels: Tuple[int, ...]
+    output_shape: Tuple[int, int]
+    sequence_gru_hidden_size: int
+    sequence_embed_dim: int
+    sequence_gru_layers: int
+    mapping_network_lr_coef: float
 
 
 class Generator(nn.Module, Freezeable):
     """Generator model based on PGAN."""
 
-    latent_dim: int = 256
-    w_dim: int = 256
-    sequence_embed_dim: int = 128
-    output_shape: Tuple[int, int] = (64, 64)
-
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        latent_dim: int = 256,
+        w_dim: int = 256,
+        channels: Tuple[int, ...] = (1024, 512, 256, 128, 3),
+        output_shape: Tuple[int, int] = (64, 64),
+        sequence_gru_hidden_size: int = 64,
+        sequence_embed_dim: int = 32,
+        sequence_gru_layers: int = 2,
+        mapping_network_lr_coef: float = 1e-2,
+    ) -> None:
         """Initialize an instance."""
         super().__init__()
 
-        self.register_parameter(
-            "cte",
-            nn.parameter.Parameter(
-                torch.empty(1, 1024, 4, 4).normal_(mean=0, std=1), requires_grad=True
-            ),
+        if output_shape[0] != int(4 * 2 ** (len(channels) - 1)):
+            raise ValueError(
+                "Mismatch between output shape and channels specified. Each value in"
+                " channels corresponds to a block which includes an 2x upsampler."
+            )
+
+        # bidirectional GRU
+        self.seq2vec_dim = sequence_gru_hidden_size * 2
+        # mapping network properties
+        self.latent_dim = latent_dim
+        self.w_dim = w_dim
+        # output shape
+        self.output_shape = output_shape
+        self.mapping_network_lr_coef = mapping_network_lr_coef
+
+        first_channels = channels[0]
+
+        self.cte = nn.Parameter(
+            torch.ones(1, first_channels, 4, 4),
+            requires_grad=True,
         )
 
         self.title_embed = nn.Sequential(
-            Seq2Vec(self.sequence_embed_dim),
-            nn.Linear(self.sequence_embed_dim, self.w_dim),
+            Seq2Vec(
+                embed_dim=sequence_embed_dim,
+                hidden_size=sequence_gru_hidden_size,
+                num_layers=sequence_gru_layers,
+            ),
+            EqualLinear(self.seq2vec_dim, first_channels),
             nn.LeakyReLU(negative_slope=0.1),
+            nn.Unflatten(-1, (first_channels, 1, 1)),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
-        channels = [
-            # 4x4
-            1024,
-            # 8x8
-            512,
-            # 16x16
-            256,
-            # 32x32
-            128,
-            3,
-            # 64x64
-        ]
-        channels = list(zip(channels, channels[1:]))
-
         self.features = nn.ModuleList()
-        for in_ch, out_ch in channels:
+        for in_ch, out_ch in zip(channels, channels[1:]):
             self.features.append(
                 GeneratorBlock(
                     in_channels=in_ch,
@@ -61,8 +90,6 @@ class Generator(nn.Module, Freezeable):
                     w_dim=self.w_dim,
                 )
             )
-
-        self.apply(weights_init)
 
     def forward(
         self,
@@ -80,11 +107,13 @@ class Generator(nn.Module, Freezeable):
         """
         B = z.size(0)
         # enriching the latent vector
-        embed = self.title_embed(title_seq)
-        mapped = self.latent_mapper(F.normalize(z, dim=-1))
-        w = mapped + embed
-        # upscaling the parameter
+        w = self.latent_mapper(F.normalize(z, dim=-1))
+        # repeating the constant parameter for whole batch size.
         x = self.cte.repeat(B, 1, 1, 1)
+        # applying title embedding to the sequence.
+        embed = self.title_embed(title_seq)
+        # adding title embedding to the constant input
+        x = x + embed
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, rgb)
@@ -102,6 +131,29 @@ class Generator(nn.Module, Freezeable):
             p.requires_grad = True
         return self
 
+    def get_optimizer_parameters(self, lr: float) -> Tuple[Dict[str, Any]]:
+        """Get optimizer parameters for this layer.
+
+        Args:
+            lr (float):
+
+        Returns:
+            Tuple[Dict[str, Any]]:
+        """
+        mapping_network_params = list(self.latent_mapper.parameters())
+        return [
+            {
+                "params": mapping_network_params,
+                "lr": lr * self.mapping_network_lr_coef,
+            },
+            {
+                "params": list(self.features.parameters())
+                + list(self.title_embed.parameters())
+                + [self.cte],
+                "lr": lr,
+            },
+        ]
+
 
 class LatentMapper(nn.Module):
     """A latent mapping module to map a latent vector to w plane."""
@@ -116,15 +168,12 @@ class LatentMapper(nn.Module):
         super().__init__()
 
         self.mapper = nn.Sequential(
-            nn.Unflatten(1, (1, latent_dim)),
-            nn.Conv1d(1, w_dim // 4, 5, 2, 2),
+            EqualLinear(latent_dim, w_dim),
             nn.LeakyReLU(negative_slope=0.1),
-            nn.Conv1d(w_dim // 4, w_dim // 2, 3, 2, 1),
+            EqualLinear(w_dim, w_dim),
             nn.LeakyReLU(negative_slope=0.1),
-            nn.Conv1d(w_dim // 2, w_dim, 3, 2, 1),
+            EqualLinear(w_dim, w_dim),
             nn.LeakyReLU(negative_slope=0.1),
-            nn.AdaptiveAvgPool1d(1),
-            nn.Flatten(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -217,10 +266,7 @@ class AdditiveNoiseBlock(nn.Module):
     def __init__(self) -> None:
         """Initialize the additive noise module."""
         super().__init__()
-        self.register_parameter(
-            "coef",
-            nn.parameter.Parameter(torch.rand(1), requires_grad=True),
-        )
+        self.coef = nn.Parameter(torch.rand(1), requires_grad=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute a weighted view of the center cropped noise.
@@ -257,7 +303,7 @@ class StyleBlock(nn.Module):
 
         self.mod_conv = ModulatedConv2D(eps=eps, **conv_params)
         self.B = AdditiveNoiseBlock()
-        self.A = nn.Linear(w_dim, self.mod_conv.conv.in_channels)
+        self.A = EqualLinear(w_dim, self.mod_conv.conv.in_channels)
 
         self.activation = nn.LeakyReLU(negative_slope=0.1)
 

@@ -34,5 +34,5 @@ def test_generator_output_shape_match_critic_input_shape(gen: Generator):
             torch.rand(1, gen.latent_dim),
             [torch.randint(0, 256, [random.randint(1, 3)])],
         ).size()[-2:]
-        == Critic.input_shape
+        == gen.output_shape
     )
