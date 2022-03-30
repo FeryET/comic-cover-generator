@@ -12,6 +12,7 @@ from torch.nn.utils.rnn import (
     unpack_sequence,
 )
 
+from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.typing import Protocol
 
 
@@ -222,7 +223,9 @@ class Seq2Vec(nn.Module):
         """
         super().__init__()
         self.embed = PackSequenceEmbedding(
-            n_characters, embed_dim, padding_idx=padding_idx
+            n_characters,
+            embed_dim,
+            padding_idx=padding_idx,
         )
 
         self.hidden_size = hidden_size
@@ -265,17 +268,17 @@ class Seq2Vec(nn.Module):
 class ModulatedConv2D(nn.Module):
     """Modulated convolution layer."""
 
-    def __init__(self, eps: float = 1e-8, **conv_params) -> None:
+    def __init__(self, eps: float = None, **conv_params) -> None:
         """Initializes a modulated convolution.
 
         Args:
-            eps (float, optional): Defaults to 1e-8.
+            eps (float, optional): Defaults to the value controlled by the constants class.
 
         Returns:
             None:
         """
         super().__init__()
-        self.eps = eps
+        self.eps = Constants.eps if eps is None else eps
         self.eq_conv = EqualConv2d(**conv_params)
 
     def forward(self, x: torch.Tensor, s: torch.Tensor) -> torch.Tensor:

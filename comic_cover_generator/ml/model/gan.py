@@ -10,6 +10,7 @@ import torchvision
 from torch.utils.data import DataLoader
 from torchmetrics.image.fid import FrechetInceptionDistance
 
+from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.dataset import CoverDataset
 from comic_cover_generator.ml.model import Critic, Generator
 from comic_cover_generator.ml.model.critic import CriticParams
@@ -82,7 +83,12 @@ class GAN(pl.LightningModule):
         if optimizer_params is None:
             default_params = {
                 "cls": torch.optim.AdamW,
-                "kwargs": {"lr": 3e-4, "weight_decay": 0.01, "betas": (0.0, 0.9)},
+                "kwargs": {
+                    "lr": 3e-4,
+                    "weight_decay": 0.01,
+                    "betas": (0.0, 0.9),
+                    "eps": Constants.eps,
+                },
                 "n_repeated_updates": 1,
             }
             optimizer_params = OrderedDict(
@@ -146,6 +152,15 @@ class GAN(pl.LightningModule):
         Returns:
             Dict[str, Any]:
         """
+        # address epsilon values
+        for key in self.optimizer_params:
+            cls, kwargs = (
+                self.optimizer_params[key]["cls"],
+                self.optimizer_params[key]["kwargs"],
+            )
+            if "eps" not in kwargs and "eps" in cls.__init__.__code__.co_varnames:
+                kwargs["eps"] = Constants.eps
+
         # generator optimizer
         gen_params = self.optimizer_params["generator"]
         gen_lr = gen_params["kwargs"]["lr"]
