@@ -20,6 +20,13 @@ class TrainingStrategy(Protocol):
         loss: torch.Tensor
         fakes: torch.Tensor
 
+    class VALIDATION_LOOP_RESULT(TypedDict):
+        """Result of TrainingStrategy.validation_loop."""
+
+        generator_loss: torch.Tensor
+        critic_loss: torch.Tensor
+        fakes: torch.Tensor
+
     def generator_loop(
         self, seq: List[torch.Tensor], z: torch.Tensor
     ) -> GENERATOR_LOOP_RESULT:
@@ -46,6 +53,21 @@ class TrainingStrategy(Protocol):
 
         Returns:
             CRITIC_LOOP_RESULT:
+        """
+        ...
+
+    def validation_loop(
+        self, reals: torch.Tensor, seq: List[torch.Tensor], z: torch.Tensor
+    ) -> VALIDATION_LOOP_RESULT:
+        """Apply a validation loop.
+
+        Args:
+            reals (torch.Tensor):
+            seq (List[torch.Tensor]):
+            z (torch.Tensor):
+
+        Returns:
+            VALIDATION_LOOP_RESULT:
         """
         ...
 

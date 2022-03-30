@@ -153,3 +153,29 @@ class WGANPlusGPTrainingStrategy:
         loss_gen = generator_loss_fn(critic_gen_fake)
 
         return {"loss": loss_gen, "fakes": fakes}
+
+    def validation_loop(
+        self, reals: torch.Tensor, seq: List[torch.Tensor], z: torch.Tensor
+    ) -> TrainingStrategy.VALIDATION_LOOP_RESULT:
+        """Apply a validation loop for WGAN-GP.
+
+        Args:
+            reals (torch.Tensor):
+            seq (List[torch.Tensor]):
+            z (torch.Tensor):
+
+        Returns:
+            TrainingStrategy.VALIDATION_LOOP_RESULT:
+        """
+        fakes = self.model.generator(z, seq)
+        critic_score_fakes = self.model.critic(fakes)
+        critic_score_reals = self.model.critic(reals)
+        loss_critic = critic_loss_fn(critic_score_fakes, critic_score_reals, 0, 0)
+
+        loss_generator = generator_loss_fn(critic_score_fakes)
+
+        return {
+            "generator_loss": loss_generator,
+            "critic_loss": loss_critic,
+            "fakes": fakes,
+        }

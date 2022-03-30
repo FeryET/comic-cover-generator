@@ -1,5 +1,5 @@
 defaults:
-  - dataset: cover_dataset
+  - datamodule: cover_datamodule
   - model: gan
   - _self_
 
@@ -17,8 +17,8 @@ trainer:
   enable_progress_bar: True
   callbacks:
     - _target_: pytorch_lightning.callbacks.ModelCheckpoint
-      filename: "{epoch}-{fid:.2f}"
-      monitor: "fid"
+      filename: "{epoch}-{val_fid:.2f}"
+      monitor: "val_fid"
       mode: "min"
       save_top_k: 1
       save_weights_only: True
