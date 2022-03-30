@@ -11,17 +11,22 @@ from torch.utils.data import DataLoader
 from torchmetrics.image.fid import FrechetInceptionDistance
 
 from comic_cover_generator.ml.dataset import CoverDataset
-from comic_cover_generator.ml.loss import (
-    critic_loss_fn,
-    generator_loss_fn,
-    gradient_penalty,
-)
 from comic_cover_generator.ml.model import Critic, Generator
 from comic_cover_generator.ml.model.critic import CriticParams
-from comic_cover_generator.ml.model.diffaugment import AugmentPolicy, diff_augment
+from comic_cover_generator.ml.model.diffaugment import AugmentPolicy
 from comic_cover_generator.ml.model.generator import GeneratorParams
+from comic_cover_generator.ml.model.training_strategy.base import (  # noqa: sort
+    TrainingStrategy,
+)
 from comic_cover_generator.ml.utils import CoverDatasetBatch, collate_fn
 from comic_cover_generator.typing import TypedDict
+
+
+class TrainingStrategyParams(TypedDict):
+    """TrainingStrategy Parameters."""
+
+    cls: Type[TrainingStrategy]
+    kwargs: Dict[str, Any]
 
 
 class OptimizerParams(TypedDict):
@@ -45,11 +50,11 @@ class GAN(pl.LightningModule):
 
     def __init__(
         self,
+        training_strategy_params: TrainingStrategyParams,
         generator_params: GeneratorParams = None,
         critic_params: CriticParams = None,
         optimizer_params: Dict[str, OptimizerParams] = None,
         batch_size: int = 1,
-        gradient_penalty_coef: float = 0.2,
     ) -> None:
         """Instantiate a GAN object.
 
@@ -58,13 +63,20 @@ class GAN(pl.LightningModule):
             critic_params (CriticParams, optional): Defaults to None.
             optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
             batch_size (int, optional): Defaults to 1.
-            gradient_penalty_coef (float, optional): Defaults to 0.2.
+
+        Returns:
+            None:
         """
         super().__init__()
 
         self.train_dataset = None
         self.batch_size = batch_size
-        self.gradient_penalty_coef = gradient_penalty_coef
+
+        self.training_strategy: TrainingStrategy = training_strategy_params["cls"](
+            **training_strategy_params["kwargs"]
+        )
+        self.training_strategy.attach_model(self)
+
         self.save_hyperparameters()
 
         if optimizer_params is None:
@@ -91,9 +103,6 @@ class GAN(pl.LightningModule):
 
         self.critic = Critic(**critic_params)
 
-        self.generator.unfreeze()
-        self.critic.unfreeze()
-
         self.validation_data: ValidationData = None
 
         self.augmentation_policy = [
@@ -103,6 +112,8 @@ class GAN(pl.LightningModule):
         ]
 
         self.fid = FrechetInceptionDistance(feature=192, compute_on_step=False)
+
+        self.G_OPT_INDEX, self.C_OPT_INDEX = None, None
 
     def attach_train_dataset_and_generate_validtaion_data(
         self, train_dataset: CoverDataset, val_gen_seed: int = 42
@@ -137,7 +148,6 @@ class GAN(pl.LightningModule):
         """
         # generator optimizer
         gen_params = self.optimizer_params["generator"]
-        g_frequency = gen_params["n_repeated_updates"]
         gen_lr = gen_params["kwargs"]["lr"]
         g_opt = gen_params["cls"](
             self.generator.get_optimizer_parameters(gen_lr), **gen_params["kwargs"]
@@ -147,7 +157,18 @@ class GAN(pl.LightningModule):
         c_opt = critic_params["cls"](
             self.critic.parameters(), **critic_params["kwargs"]
         )
-        c_frequency = critic_params["n_repeated_updates"]
+        from comic_cover_generator.ml.model.training_strategy.wgan_gp import (
+            WGANPlusGPTrainingStrategy,
+        )
+
+        if isinstance(self.training_strategy, WGANPlusGPTrainingStrategy):
+            g_frequency = 1
+            c_frequency = self.training_strategy.critic_update_interval
+        else:
+            g_frequency = 1
+            c_frequency = 1
+
+        self.G_OPT_INDEX, self.C_OPT_INDEX = 0, 1
 
         return {
             "optimizer": g_opt,
@@ -187,11 +208,26 @@ class GAN(pl.LightningModule):
 
         # train generator
         if optimizer_idx == 0:
-            output = self._training_step_generator(reals, z, seq)
+            self.critic.freeze()
+            self.critic.eval()
+            self.generator.unfreeze()
+            self.generator.train()
+
+            output = self.training_strategy.generator_loop(seq, z)
+            fakes = output["fakes"]
+
+            self.fid.update(self.generator.to_uint8(fakes.detach()), real=False)
+            self.fid.update(self.generator.to_uint8(reals), real=True)
             k = "generator_loss"
+
         # train discriminator
         if optimizer_idx == 1:
-            output = self._training_step_critic(reals, z, seq)
+            self.critic.unfreeze()
+            self.critic.train()
+            self.generator.freeze()
+            self.generator.eval()
+
+            output = self.training_strategy.critic_loop(reals, seq, z)
             k = "critic_loss"
 
         self.log(
@@ -202,42 +238,6 @@ class GAN(pl.LightningModule):
             on_epoch=True,
         )
         return output
-
-    def _training_step_generator(self, reals, z, seq):
-        self.critic.freeze()
-        self.critic.eval()
-
-        self.generator.unfreeze()
-        self.generator.train()
-
-        fake = self.generator(z, seq)
-        critic_gen_fake = self.critic(fake).reshape(-1)
-        loss_gen = generator_loss_fn(critic_gen_fake)
-
-        self.fid.update(_to_uint8(fake.detach()), real=False)
-        self.fid.update(_to_uint8(reals), real=True)
-
-        return {"loss": loss_gen}
-
-    def _training_step_critic(self, reals, z, seq):
-        self.critic.unfreeze()
-        self.critic.train()
-
-        self.generator.freeze()
-        self.generator.eval()
-
-        fakes = self.generator(z, seq)
-
-        fakes = diff_augment(fakes, self.augmentation_policy)
-        reals = diff_augment(reals, self.augmentation_policy)
-
-        critic_score_fakes = self.critic(fakes)
-        critic_score_reals = self.critic(reals)
-        gp = gradient_penalty(self.critic, reals.data, fakes.data)
-        loss_critic = critic_loss_fn(
-            critic_score_fakes, critic_score_reals, gp, self.gradient_penalty_coef
-        )
-        return {"loss": loss_critic}
 
     def _extract_inputs(
         self, batch: Dict[str, Any]
@@ -311,8 +311,3 @@ class GAN(pl.LightningModule):
             pin_memory=True,
             num_workers=psutil.cpu_count(logical=False),
         )
-
-
-def _to_uint8(x: torch.Tensor):
-    x = x / 2 + 1 / 2
-    return (x * 255.0).type(torch.uint8)

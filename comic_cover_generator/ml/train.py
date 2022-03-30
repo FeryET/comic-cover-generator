@@ -67,7 +67,9 @@ def train(cfg: DictConfig):
     generate_training_images_grid(dataset)
 
     # init model
-    model = GAN(**config["model"])
+    model = GAN(
+        training_strategy_params=config["training_strategy_params"], **config["model"]
+    )
     model.attach_train_dataset_and_generate_validtaion_data(dataset)
 
     # init trainer

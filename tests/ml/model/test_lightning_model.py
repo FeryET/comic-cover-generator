@@ -9,30 +9,17 @@ from torchmetrics.image.fid import FrechetInceptionDistance
 
 from comic_cover_generator.ml.model import GAN, Critic, Generator
 from comic_cover_generator.ml.model.diffaugment import diff_augment
-
-
-def append_freeze_unfreeeze(mocked):
-    mocked.freeze = mock.MagicMock()
-    mocked.unfreeze = mock.MagicMock()
-    return mocked
+from comic_cover_generator.ml.model.training_strategy.wgan_gp import (
+    WGANPlusGPTrainingStrategy,
+)
 
 
 @pytest.fixture(scope="function")
 def model():
-    result_func = lambda *args, **kwargs: torch.Tensor([1.0])  # noqa:
     with mock.patch(
         "comic_cover_generator.ml.model.gan.Generator", autospec=Generator
     ), mock.patch(
         "comic_cover_generator.ml.model.gan.Critic", autospec=Critic
-    ), mock.patch(
-        "comic_cover_generator.ml.model.gan.gradient_penalty",
-        result_func,
-    ), mock.patch(
-        "comic_cover_generator.ml.model.gan.critic_loss_fn",
-        result_func,
-    ), mock.patch(
-        "comic_cover_generator.ml.model.gan.generator_loss_fn",
-        result_func,
     ), mock.patch(
         "comic_cover_generator.ml.model.gan.FrechetInceptionDistance",
         spec=FrechetInceptionDistance,
@@ -41,10 +28,13 @@ def model():
     ), mock.patch(
         "comic_cover_generator.ml.model.gan.pl",
         autospec=pytorch_lightning,
-    ), mock.patch(
-        "comic_cover_generator.ml.model.gan.diff_augment", spec=diff_augment
     ):
-        gan = GAN()
+        gan = GAN(
+            training_strategy_params={
+                "cls": mock.MagicMock(autospec=WGANPlusGPTrainingStrategy),
+                "kwargs": {},
+            }
+        )
         yield gan
 
 
@@ -66,19 +56,18 @@ def batch(request):
 
 @torch.no_grad()
 @pytest.mark.parametrize("optimizer_idx", argvalues=[0, 1])
-def test_training_step_input_pass(model: GAN, batch, optimizer_idx):
+def test_training_step_input_pass(model, batch, optimizer_idx):
     with mock.patch.object(
-        model, "_training_step_generator", return_value={"loss": torch.Tensor([1])}
-    ), mock.patch.object(
-        model,
-        "_training_step_critic",
-        return_value={"loss": torch.Tensor([1])},
-    ), mock.patch.object(
         model, "_extract_inputs", return_value=(1, 2, 3)
-    ):
+    ), mock.patch.object(model, "log", autospec=True):
         model.training_step(batch, 0, optimizer_idx)
         model._extract_inputs.assert_called_once()
         if optimizer_idx == 0:
-            model._training_step_generator.assert_called_once()
+            model.generator.unfreeze.assert_called_once()
+            model.critic.freeze.assert_called_once()
+            model.training_strategy.generator_loop.assert_called_once()
         if optimizer_idx == 1:
-            model._training_step_critic.assert_called_once()
+            model.generator.freeze.assert_called_once()
+            model.critic.unfreeze.assert_called_once()
+            model.training_strategy.critic_loop.assert_called_once()
+        model.log.assert_called_once()

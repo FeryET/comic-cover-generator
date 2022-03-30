@@ -4,6 +4,7 @@ from typing import Sequence
 
 import torch
 from torch import Tensor, nn
+from torch.nn import functional as F
 from torch.nn.utils.rnn import (
     PackedSequence,
     _packed_sequence_init,
@@ -12,104 +13,6 @@ from torch.nn.utils.rnn import (
 )
 
 from comic_cover_generator.typing import Protocol
-
-
-def equal_lr(module: nn.Module) -> nn.Module:
-    """Apply equalizing learning rate to a module.
-
-    Args:
-        module (nn.Module):
-
-    Returns:
-        nn.Module:
-    """
-    EqualLR.apply(module, "weight")
-    return module
-
-
-def EqualLinear(*args, **kwargs) -> nn.Linear:
-    """Instantiate an equalized lr linear layer.
-
-    Returns:
-        nn.Linear:
-    """
-    linear = nn.Linear(*args, **kwargs)
-    linear.weight.data.normal_()
-    if linear.bias is not None:
-        linear.bias.data.zero_()
-    return equal_lr(linear)
-
-
-def EqualConv2d(*args, **kwargs) -> nn.Conv2d:
-    """Instantiate an equalized lr Conv2d layer.
-
-    Returns:
-        nn.Conv2d:
-    """
-    conv = nn.Conv2d(*args, **kwargs)
-    conv.weight.data.normal_()
-    if conv.bias is not None:
-        conv.bias.data.zero_()
-    return equal_lr(conv)
-
-
-class EqualLR:
-    """Equalize learning rate for a layer.
-
-    Courtesy of: https://github.com/rosinality/style-based-gan-pytorch/blob/07fa60be77b093dd13a46597138df409ffc3b9bc/model.py#L380
-    """
-
-    def __init__(self, name: str):
-        """Initialize an equalized learning rate transform for a layer.
-
-        Args:
-            name (str): name of the equalized parameter.
-        """
-        self.name = name
-
-    def compute_weight(self, module: nn.Module) -> torch.Tensor:
-        """Compute the equalized parameter.
-
-        Args:
-            module (nn.Module):
-
-        Returns:
-            torch.Tensor:
-        """
-        weight = getattr(module, self.name + "_orig")
-        fan_in = weight.data.size(1) * weight.data[0][0].numel()
-
-        return weight * math.sqrt(2 / fan_in)
-
-    @staticmethod
-    def apply(module: nn.Module, name: str) -> None:
-        """Apply the equalized learning rate transform on a module.
-
-        Args:
-            module (nn.Module):
-            name (str):
-
-        Returns:
-            None:
-        """
-        fn = EqualLR(name)
-
-        weight = getattr(module, name)
-        del module._parameters[name]
-        module.register_parameter(name + "_orig", nn.Parameter(weight.data))
-        module.register_forward_pre_hook(fn)
-
-    def __call__(self, module: nn.Module, *args) -> None:
-        """Update the module with equalized weights.
-
-        Args:
-            module (nn.Module):
-
-        Returns:
-            None:
-        """
-        weight = self.compute_weight(module)
-        setattr(module, self.name, weight)
 
 
 class Freezeable(Protocol):
@@ -122,6 +25,158 @@ class Freezeable(Protocol):
     def unfreeze(self):
         """Unfreezing method."""
         ...
+
+
+class EqualLinear(nn.Linear):
+    """An Equalized Linear Layer."""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+    ) -> None:
+        """Intiailize an eqaulized linear.
+
+        Args:
+            in_features (int): Input feature dimension.
+            out_features (int): Output feature dimension.
+            bias (bool, optional): Defaults to True.
+            device (_type_, optional): Defaults to None.
+            dtype (_type_, optional): Defaults to None.
+        """
+        super().__init__(in_features, out_features, bias, device, dtype)
+        self.register_parameter(
+            "scale_w",
+            nn.Parameter(
+                torch.as_tensor([1.0 / math.sqrt(in_features)]), requires_grad=True
+            ),
+        )
+        self.weight.data.normal_()
+        if self.bias is not None:
+            self.bias.data = torch.ones(1)
+
+    def forward(self, input: Tensor) -> Tensor:
+        """Forward call of equalized linear.
+
+        Args:
+            input (Tensor):
+
+        Returns:
+            Tensor:
+        """
+        return F.linear(
+            input,
+            self.weight * self.scale_w,
+            self.bias,
+        )
+
+
+class EqualConv2d(nn.Module):
+    """Equalized Learning Rate 2D Convolution."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int = 1,
+        padding: int = 0,
+        dilation: int = 1,
+        groups: int = 1,
+        bias: bool = True,
+        padding_mode: str = "zeros",
+        device=None,
+        dtype=None,
+    ) -> None:
+        """Initializes an equalized conv2d.
+
+        Args:
+            in_channels (int): Input feature maps.
+            out_channels (int): Output feature maps.
+            kernel_size (int): Kernel dims.
+            stride (int, optional): Defaults to 1.
+            padding (int, optional): Defaults to 0.
+            dilation (int, optional): Defaults to 1.
+            groups (int, optional): Defaults to 1.
+            bias (bool, optional): Defaults to True.
+            padding_mode (str, optional): Defaults to "zeros".
+            device (_type_, optional): Defaults to None.
+            dtype (_type_, optional): Defaults to None.
+        """
+        super().__init__()
+        self._conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=False,
+            padding_mode=padding_mode,
+            device=device,
+            dtype=dtype,
+        )
+        self._conv.weight.data.normal_()
+
+        self.register_buffer(
+            "scale_w",
+            torch.Tensor([math.sqrt(2 / (in_channels * (kernel_size**2)))]),
+        )
+
+        if bias is not False:
+            self._bias = nn.Parameter(
+                data=torch.zeros(out_channels), requires_grad=True
+            )
+            self.register_buffer(
+                "scale_b",
+                torch.Tensor([math.sqrt(2 / out_channels)]),
+            )
+        else:
+            self._bias = None
+
+    @property
+    def weight(self) -> torch.Tensor:
+        """Weight property of EqualConv2d.
+
+        Returns:
+            torch.Tensor:
+        """
+        return self._conv.weight * self.scale_w
+
+    @property
+    def bias(self) -> torch.Tensor:
+        """Bias property of EqualConv2d.
+
+        Returns:
+            torch.Tensor:
+        """
+        if self._bias is not None:
+            return self._bias * self.scale_b
+        else:
+            return self._bias
+
+    def forward(self, input: Tensor) -> Tensor:
+        """Apply an equalized conv2d.
+
+        Args:
+            input (Tensor):
+
+        Returns:
+            Tensor:
+        """
+        return F.conv2d(
+            input,
+            self.weight,
+            self.bias,
+            self._conv.stride,
+            self._conv.padding,
+            self._conv.dilation,
+            self._conv.groups,
+        )
 
 
 class PackSequenceEmbedding(nn.Embedding):
@@ -221,12 +276,7 @@ class ModulatedConv2D(nn.Module):
         """
         super().__init__()
         self.eps = eps
-        self.conv = EqualConv2d(**conv_params)
-        if self.conv.bias is not None:
-            self.bias = torch.nn.Parameter(
-                self.conv.bias.data.reshape(1, -1, 1, 1), requires_grad=True
-            )
-            self.conv.bias = None
+        self.eq_conv = EqualConv2d(**conv_params)
 
     def forward(self, x: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
         """Compute the modulated convolution.
@@ -239,12 +289,17 @@ class ModulatedConv2D(nn.Module):
             torch.Tensor: Modulated convolution result.
         """
         B = x.size(0)
-        w = self.conv.weight_orig.unsqueeze(0)
+        w = self.eq_conv.weight.unsqueeze(0)
         w = w * s.reshape(B, 1, -1, 1, 1)
         # sigma is 1 / sqrt(sum(w^2))
         sigma = w.square().sum(dim=(2, 3, 4)).add(self.eps).rsqrt()
         x = x * s.reshape(B, -1, 1, 1)
-        x = self.conv(x)
+        x = self.eq_conv(x)
         # add bias too if applicable
-        x = x * sigma.to(x.dtype).reshape(B, -1, 1, 1) + self.bias
+        if self.eq_conv.bias is not None:
+            x = x * sigma.to(x.dtype).reshape(B, -1, 1, 1) + self.eq_conv.bias.reshape(
+                1, -1, 1, 1
+            )
+        else:
+            x = x * sigma.to(x.dtype).reshape(B, -1, 1, 1)
         return x

@@ -1,3 +1,6 @@
+batch_size: 1
+
+# model parameters
 generator_params:
     latent_dim: 256
     w_dim: 256
@@ -10,20 +13,17 @@ generator_params:
 critic_params:
     channels: [32, 64, 128, 256, 512]
     input_shape: [64, 64]
+
 optimizer_params:
     generator:
         cls: "${get_cls: torch.optim.AdamW}"
-        n_repeated_updates: 1
         kwargs:
             lr: 3e-4
-            betas: [0.0, 0.9]
+            betas: [0.0, 0.99]
             weight_decay: 0.0
     critic:
         cls: "${get_cls: torch.optim.AdamW}"
-        n_repeated_updates: 5
         kwargs:
             lr: 3e-4
-            betas: [0.0, 0.9]
+            betas: [0.0, 0.99]
             weight_decay: 0.00
-batch_size: 1
-gradient_penalty_coef: 10

@@ -7,24 +7,17 @@ import torch
 from comic_cover_generator.ml.model import Critic, Generator
 
 
-class MockedPGAN:
-    def __init__(self):
-        pass
-
-    def getNetG(self):
-        def features(x: torch.Tensor, feature_size=Generator.output_shape):
-            if x.size()[-1] != Generator.latent_dim:
-                raise RuntimeError("Mismatch of input shape.")
-            return torch.rand(len(x), 3, *feature_size)
-
-        return features
-
-
 @pytest.fixture(scope="module")
 def gen():
-    with mock.patch("torch.hub.load") as mocked:
-        mocked.return_value = MockedPGAN()
-        yield Generator()
+    return Generator(
+        16,
+        16,
+        (8, 4, 2),
+        output_shape=(16, 16),
+        sequence_gru_hidden_size=16,
+        sequence_embed_dim=4,
+        sequence_gru_layers=1,
+    )
 
 
 @torch.no_grad()

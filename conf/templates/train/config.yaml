@@ -22,3 +22,10 @@ trainer:
       mode: "min"
       save_top_k: 1
       save_weights_only: True
+
+# strategy
+training_strategy_params:
+  cls: "${get_cls: comic_cover_generator.ml.model.training_strategy.wgan_gp.WGANPlusGPTrainingStrategy}"
+  kwargs:
+    gradient_penalty_coef: 10.0
+    critic_update_interval: 1

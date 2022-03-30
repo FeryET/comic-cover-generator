@@ -47,9 +47,12 @@ class Generator(nn.Module, Freezeable):
         super().__init__()
 
         if output_shape[0] != int(4 * 2 ** (len(channels) - 1)):
+            computed_shape = tuple(int(4 * 2 ** (len(channels) - 1)) for _ in range(2))
             raise ValueError(
-                "Mismatch between output shape and channels specified. Each value in"
-                " channels corresponds to a block which includes an 2x upsampler."
+                f"Mismatch between output shape: {output_shape} and channels specified"
+                f" which results in computed output shape of {computed_shape}. Each"
+                " value in channels corresponds to a block which includes an 2x"
+                " upsampler."
             )
 
         # bidirectional GRU
@@ -156,6 +159,18 @@ class Generator(nn.Module, Freezeable):
                 "lr": lr,
             },
         ]
+
+    def to_uint8(self, x: torch.Tensor) -> torch.Tensor:
+        """Map the output of the generator model to uint8.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        x = x / 2 + 1 / 2
+        return (x * 255.0).type(torch.uint8)
 
 
 class LatentMapper(nn.Module):
@@ -307,7 +322,7 @@ class StyleBlock(nn.Module):
 
         self.mod_conv = ModulatedConv2D(eps=eps, **conv_params)
         self.B = AdditiveNoiseBlock()
-        self.A = EqualLinear(w_dim, self.mod_conv.conv.in_channels)
+        self.A = EqualLinear(w_dim, conv_params["in_channels"])
 
         self.activation = nn.LeakyReLU(negative_slope=0.1)
 
