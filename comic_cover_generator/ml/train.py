@@ -7,7 +7,7 @@ from hydra.utils import get_class, instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from comic_cover_generator.ml.constants import Constants
-from comic_cover_generator.ml.dataset import CoverDataset
+from comic_cover_generator.ml.dataset import CoverDataModule, CoverDataset
 from comic_cover_generator.ml.model import GAN
 
 CONFIG_PATH = "../../conf/train/"
@@ -68,15 +68,16 @@ def train(cfg: DictConfig):
     # fix epsilon
     Constants.eps = config.get("eps", 1e-7 if is_float16 else 1e-8)
 
-    # init data
-    dataset = CoverDataset(**config["dataset"])
-    generate_training_images_grid(dataset)
-
     # init model
     model = GAN(
         training_strategy_params=config["training_strategy_params"], **config["model"]
     )
-    model.attach_train_dataset_and_generate_validtaion_data(dataset)
+
+    # init data
+    datamodule = CoverDataModule(**config["datamodule"])
+    datamodule.prepare_data()
+    datamodule.setup()
+    generate_training_images_grid(datamodule.subsets.val)
 
     # init trainer
     trainer = pl.Trainer(**config["trainer"])
@@ -88,8 +89,8 @@ def train(cfg: DictConfig):
 
     with mlflow.start_run():
         mlflow.log_artifact(".hydra/config.yaml", "config.yaml")
-        trainer.tune(model)
-        trainer.fit(model)
+        trainer.tune(model, datamodule=datamodule)
+        trainer.fit(model, datamodule=datamodule)
 
 
 if __name__ == "__main__":

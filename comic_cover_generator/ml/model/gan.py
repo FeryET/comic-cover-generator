@@ -1,17 +1,13 @@
 """Model module."""
 from collections import OrderedDict
-from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple, Type
 
-import numpy as np
 import pytorch_lightning as pl
 import torch
 import torchvision
-from torch.utils.data import DataLoader
 from torchmetrics.image.fid import FrechetInceptionDistance
 
 from comic_cover_generator.ml.constants import Constants
-from comic_cover_generator.ml.dataset import CoverDataset
 from comic_cover_generator.ml.model import Critic, Generator
 from comic_cover_generator.ml.model.critic import CriticParams
 from comic_cover_generator.ml.model.diffaugment import AugmentPolicy
@@ -19,7 +15,7 @@ from comic_cover_generator.ml.model.generator import GeneratorParams
 from comic_cover_generator.ml.model.training_strategy.base import (  # noqa: sort
     TrainingStrategy,
 )
-from comic_cover_generator.ml.utils import CoverDatasetBatch, collate_fn
+from comic_cover_generator.ml.utils import CoverDatasetBatch
 from comic_cover_generator.typing import TypedDict
 
 
@@ -37,14 +33,6 @@ class OptimizerParams(TypedDict):
     kwargs: Dict[str, Any]
 
 
-@dataclass
-class ValidationData:
-    """Validation data class."""
-
-    z: torch.Tensor
-    seq: Sequence[torch.Tensor]
-
-
 # TODO: Make this class configurable.
 class GAN(pl.LightningModule):
     """GAN class."""
@@ -55,7 +43,6 @@ class GAN(pl.LightningModule):
         generator_params: GeneratorParams = None,
         critic_params: CriticParams = None,
         optimizer_params: Dict[str, OptimizerParams] = None,
-        batch_size: int = 1,
     ) -> None:
         """Instantiate a GAN object.
 
@@ -63,7 +50,6 @@ class GAN(pl.LightningModule):
             generator_params: (GeneratorParams, optional): Defaults to None.
             critic_params (CriticParams, optional): Defaults to None.
             optimizer_params (Dict[str, OptimizerParams], optional): The optimizers parameters. Defaults to None.
-            batch_size (int, optional): Defaults to 1.
 
         Returns:
             None:
@@ -71,7 +57,6 @@ class GAN(pl.LightningModule):
         super().__init__()
 
         self.train_dataset = None
-        self.batch_size = batch_size
 
         self.training_strategy: TrainingStrategy = training_strategy_params["cls"](
             **training_strategy_params["kwargs"]
@@ -109,42 +94,16 @@ class GAN(pl.LightningModule):
 
         self.critic = Critic(**critic_params)
 
-        self.validation_data: ValidationData = None
-
         self.augmentation_policy = [
             AugmentPolicy.color.value,
             AugmentPolicy.cutout.value,
             AugmentPolicy.translation.value,
         ]
 
-        self.fid = FrechetInceptionDistance(feature=192, compute_on_step=False)
+        self.train_fid = FrechetInceptionDistance(feature=192, compute_on_step=False)
+        self.val_fid = self.train_fid.clone()
 
         self.G_OPT_INDEX, self.C_OPT_INDEX = None, None
-
-    def attach_train_dataset_and_generate_validtaion_data(
-        self, train_dataset: CoverDataset, val_gen_seed: int = 42
-    ):
-        """Attach train dataset and generate validation data.
-
-        Args:
-            train_dataset (Dataset): train dataset.
-            val_gen_seed (int): validation generation seed.
-        """
-        self.train_dataset = train_dataset
-        rng = np.random.default_rng(seed=val_gen_seed)
-        self.validation_data = ValidationData(
-            torch.empty(8, self.generator.latent_dim).normal_(mean=0.0, std=1.0),
-            sorted(
-                [
-                    self.train_dataset[idx]["title_seq"]
-                    for idx in rng.choice(
-                        range(len(self.train_dataset)), size=8, replace=False
-                    )
-                ],
-                key=lambda x: x.size(0),
-                reverse=True,
-            ),
-        )
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Configure the optimizers of the model.
@@ -206,54 +165,6 @@ class GAN(pl.LightningModule):
         """
         return self.generator(z, seq)
 
-    def training_step(
-        self, batch: CoverDatasetBatch, batch_idx: int, optimizer_idx: int
-    ) -> Dict[str, Any]:
-        """Execute a training step.
-
-        Args:
-            batch (CoverDatasetBatch):
-            batch_idx (int):
-            optimizer_idx (int):
-
-        Returns:
-            Dict[str, Any]: The output of the training step.
-        """
-        reals, z, seq = self._extract_inputs(batch)
-
-        # train generator
-        if optimizer_idx == 0:
-            self.critic.freeze()
-            self.critic.eval()
-            self.generator.unfreeze()
-            self.generator.train()
-
-            output = self.training_strategy.generator_loop(seq, z)
-            fakes = output["fakes"]
-
-            self.fid.update(self.generator.to_uint8(fakes.detach()), real=False)
-            self.fid.update(self.generator.to_uint8(reals), real=True)
-            k = "generator_loss"
-
-        # train discriminator
-        if optimizer_idx == 1:
-            self.critic.unfreeze()
-            self.critic.train()
-            self.generator.freeze()
-            self.generator.eval()
-
-            output = self.training_strategy.critic_loop(reals, seq, z)
-            k = "critic_loss"
-
-        self.log(
-            k,
-            output["loss"].detach(),
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-        )
-        return output
-
     def _extract_inputs(
         self, batch: Dict[str, Any]
     ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor]]:
@@ -278,6 +189,53 @@ class GAN(pl.LightningModule):
 
         return reals, z, seq
 
+    def training_step(
+        self, batch: CoverDatasetBatch, batch_idx: int, optimizer_idx: int
+    ) -> Dict[str, Any]:
+        """Execute a training step.
+
+        Args:
+            batch (CoverDatasetBatch):
+            batch_idx (int):
+            optimizer_idx (int):
+
+        Returns:
+            Dict[str, Any]: The output of the training step.
+        """
+        reals, z, seq = self._extract_inputs(batch)
+        # train generator
+        if optimizer_idx == 0:
+            self.critic.freeze()
+            self.critic.eval()
+            self.generator.unfreeze()
+            self.generator.train()
+
+            output = self.training_strategy.generator_loop(seq, z)
+            fakes = output["fakes"]
+
+            self.train_fid.update(self.generator.to_uint8(fakes.detach()), real=False)
+            self.train_fid.update(self.generator.to_uint8(reals), real=True)
+            k = "generator"
+
+        # train discriminator
+        if optimizer_idx == 1:
+            self.critic.unfreeze()
+            self.critic.train()
+            self.generator.freeze()
+            self.generator.eval()
+
+            output = self.training_strategy.critic_loop(reals, seq, z)
+            k = "critic"
+
+        self.log(
+            f"train_{k}_loss",
+            output["loss"].detach(),
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+        )
+        return output
+
     def training_epoch_end(self, outputs: Any) -> None:
         """Generate an output on epoch end callback.
 
@@ -287,42 +245,66 @@ class GAN(pl.LightningModule):
         Returns:
             None:
         """
-        self.eval()
-
-        w = next(filter(lambda x: x.requires_grad, self.parameters()))
-        z = self.validation_data.z.type_as(w).to(w.device)
-        seq = [s.to(w.device) for s in self.validation_data.seq]
-
-        # log sampled images
-        with torch.no_grad():
-            sample_imgs = self(z, seq)
-
-        grid = torchvision.utils.make_grid(
-            sample_imgs, nrow=4, value_range=(-1, 1), normalize=True
-        )
-
-        self.logger.experiment.add_image("generated_images", grid, self.current_epoch)
-
         # compute fid
-        fid = self.fid.compute()
-        self.log("fid", fid, prog_bar=True)
-        self.fid.reset()
+        fid = self.train_fid.compute()
+        self.log("train_fid", fid, prog_bar=True)
+        self.train_fid.reset()
 
         return super().training_epoch_end(outputs)
 
-    def train_dataloader(self) -> DataLoader:
-        """Get the train loader.
+    def validation_step(
+        self, batch: CoverDatasetBatch, batch_idx: int, *args, **kwargs
+    ) -> Dict[str, Any]:
+        """Apply a validation step.
+
+        Args:
+            batch (CoverDatasetBatch):
+            batch_idx (int):
 
         Returns:
-            DataLoader: train data loader.
+            Dict[str, Any]:
         """
-        import psutil
+        reals, z, seq = self._extract_inputs(batch)
 
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            collate_fn=collate_fn,
-            pin_memory=True,
-            num_workers=psutil.cpu_count(logical=False),
+        output = self.training_strategy.validation_loop(reals, seq, z)
+
+        fakes = output["fakes"]
+
+        self.val_fid.update(self.generator.to_uint8(fakes), real=False)
+        self.val_fid.update(self.generator.to_uint8(reals), real=True)
+
+        self.log_dict(
+            {
+                "val_generator_loss": output["generator_loss"],
+                "val_critic_loss": output["critic_loss"],
+            },
+            prog_bar=True,
+            on_epoch=True,
+            on_step=False,
         )
+
+        if batch_idx == 0:
+            # log sampled images
+            grid = torchvision.utils.make_grid(
+                fakes[:16], nrow=4, value_range=(-1, 1), normalize=True
+            )
+
+            self.logger.experiment.add_image(
+                "generated_images", grid, self.current_epoch
+            )
+
+        return {"loss": output["critic_loss"]}
+
+    def validation_epoch_end(self, outputs: Any) -> None:
+        """Update metrics on the validation end.
+
+        Args:
+            outputs (Any):
+
+        Returns:
+            None:
+        """
+        fid = self.val_fid.compute()
+        self.log("val_fid", fid, prog_bar=True)
+        self.val_fid.reset()
+        return super().validation_epoch_end(outputs)

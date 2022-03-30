@@ -3,15 +3,17 @@ import random
 import string
 from collections import namedtuple
 from pathlib import Path
-from typing import Sequence, Tuple
+from typing import NamedTuple, Optional, Sequence, Tuple
 
 import h5py
 import numpy as np
 import pandas as pd
+import psutil
 import torch
 from PIL import Image, ImageOps
+from pytorch_lightning import LightningDataModule
 from torch import Tensor
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset, Subset, random_split
 from torchvision import transforms as vision_transforms
 from tqdm.auto import tqdm
 
@@ -239,3 +241,102 @@ class CoverDataset(Dataset):
         )
         image = self.image_transforms(image)
         return {"image": image, "title_seq": title_seq, "full_title": full_title}
+
+
+class CoverDataModule(LightningDataModule):
+    """Cover data module for encapsulating cover dataset."""
+
+    class Subsets(NamedTuple):
+        """Subsets of a dataset."""
+
+        train: Subset
+        val: Subset
+
+    class SubsetLengths(NamedTuple):
+        """Split lengths of a dataset."""
+
+        train: float
+        val: float
+
+    def __init__(
+        self,
+        dataset: CoverDataset,
+        batch_size: int,
+        subsets_lengths: "CoverDataModule.SubsetLengths" = None,
+        random_seed: int = None,
+    ):
+        """Initialize a data module.
+
+        Args:
+            dataset (CoverDataset):
+            batch_size (int):
+            subsets_lengths (CoverDataModule.Splits, optional): Defaults to None.
+            random_seed (int, optional): Defaults to None.
+
+        Returns:
+            None:
+        """
+        super().__init__()
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.random_generator = torch.Generator("cpu").manual_seed(random_seed)
+        self.subsets: CoverDataModule.Subsets = None
+
+        train_length = int(len(dataset) * subsets_lengths[0] / sum(subsets_lengths))
+        self.subsets_lengths = CoverDataModule.SubsetLengths(
+            train_length, len(dataset) - train_length
+        )
+
+    def setup(self, stage: Optional[str] = None) -> None:
+        """Setup the data module.
+
+        Args:
+            collate_fn (Callable):
+            stage (Optional[str], optional): Defaults to None.
+
+        Returns:
+            None:
+        """
+        self.subsets = CoverDataModule.Subsets(
+            *random_split(
+                self.dataset, self.subsets_lengths, generator=self.random_generator
+            )
+        )
+
+    def prepare_data(self) -> None:
+        """Does nothing."""
+        super().prepare_data()
+
+    def train_dataloader(self) -> DataLoader:
+        """Get the train dataloader.
+
+        Returns:
+            DataLoader:
+        """
+        from comic_cover_generator.ml.utils import collate_fn
+
+        return DataLoader(
+            self.subsets.train,
+            self.batch_size,
+            shuffle=True,
+            pin_memory=True,
+            collate_fn=collate_fn,
+            num_workers=psutil.cpu_count(logical=False),
+        )
+
+    def val_dataloader(self) -> DataLoader:
+        """Get the validation dataloader.
+
+        Returns:
+            DataLoader:
+        """
+        from comic_cover_generator.ml.utils import collate_fn
+
+        return DataLoader(
+            self.subsets.val,
+            self.batch_size,
+            shuffle=False,
+            pin_memory=True,
+            collate_fn=collate_fn,
+            num_workers=psutil.cpu_count(logical=False),
+        )
