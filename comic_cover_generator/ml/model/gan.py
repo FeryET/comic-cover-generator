@@ -210,7 +210,7 @@ class GAN(pl.LightningModule):
             self.generator.unfreeze()
             self.generator.train()
 
-            output = self.training_strategy.generator_loop(seq, z)
+            output = self.training_strategy.generator_loop(seq, z, batch_idx)
             fakes = output["fakes"]
 
             self.train_fid.update(self.generator.to_uint8(fakes.detach()), real=False)
@@ -224,7 +224,7 @@ class GAN(pl.LightningModule):
             self.generator.freeze()
             self.generator.eval()
 
-            output = self.training_strategy.critic_loop(reals, seq, z)
+            output = self.training_strategy.critic_loop(reals, seq, z, batch_idx)
             k = "critic"
 
         self.log(
@@ -266,7 +266,7 @@ class GAN(pl.LightningModule):
         """
         reals, z, seq = self._extract_inputs(batch)
 
-        output = self.training_strategy.validation_loop(reals, seq, z)
+        output = self.training_strategy.validation_loop(reals, seq, z, batch_idx)
 
         fakes = output["fakes"]
 
@@ -284,9 +284,15 @@ class GAN(pl.LightningModule):
         )
 
         if batch_idx == 0:
+            if self.current_epoch == 0:
+                self.validation_z = z[:16]
+                self.validation_seq = seq[:16]
+                sample_imgs = fakes[:16]
+            else:
+                sample_imgs = self(self.validation_z, self.validation_seq)
             # log sampled images
             grid = torchvision.utils.make_grid(
-                fakes[:16], nrow=4, value_range=(-1, 1), normalize=True
+                sample_imgs, nrow=4, value_range=(-1, 1), normalize=True
             )
 
             self.logger.experiment.add_image(

@@ -28,13 +28,14 @@ class TrainingStrategy(Protocol):
         fakes: torch.Tensor
 
     def generator_loop(
-        self, seq: List[torch.Tensor], z: torch.Tensor
+        self, seq: List[torch.Tensor], z: torch.Tensor, batch_idx: int
     ) -> GENERATOR_LOOP_RESULT:
         """Attempt a generator loop.
 
         Args:
             seq (List[torch.Tensor]): Input sequence.
             z (torch.Tensor): Latent noise.
+            batch_idx (int): Index of the input batch.
 
         Returns:
             GENERATOR_LOOP_RESULT:
@@ -42,7 +43,11 @@ class TrainingStrategy(Protocol):
         ...
 
     def critic_loop(
-        self, reals: torch.Tensor, seq: List[torch.Tensor], z: torch.Tensor
+        self,
+        reals: torch.Tensor,
+        seq: List[torch.Tensor],
+        z: torch.Tensor,
+        batch_idx: int,
     ) -> CRITIC_LOOP_RESULT:
         """Attempt a critic loop.
 
@@ -50,6 +55,7 @@ class TrainingStrategy(Protocol):
             reals (torch.Tensor): Real images.
             seq (List[torch.Tensor]): Input sequences.
             z (torch.Tensor): Latent noise.
+            batch_idx (int): Index of the input batch.
 
         Returns:
             CRITIC_LOOP_RESULT:
@@ -57,7 +63,11 @@ class TrainingStrategy(Protocol):
         ...
 
     def validation_loop(
-        self, reals: torch.Tensor, seq: List[torch.Tensor], z: torch.Tensor
+        self,
+        reals: torch.Tensor,
+        seq: List[torch.Tensor],
+        z: torch.Tensor,
+        batch_idx: int,
     ) -> VALIDATION_LOOP_RESULT:
         """Apply a validation loop.
 
@@ -65,6 +75,7 @@ class TrainingStrategy(Protocol):
             reals (torch.Tensor):
             seq (List[torch.Tensor]):
             z (torch.Tensor):
+            batch_idx (int):
 
         Returns:
             VALIDATION_LOOP_RESULT:

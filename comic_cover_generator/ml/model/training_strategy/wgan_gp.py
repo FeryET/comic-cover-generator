@@ -111,7 +111,11 @@ class WGANPlusGPTrainingStrategy:
         self.model = model
 
     def critic_loop(
-        self, reals: torch.Tensor, seq: List[torch.Tensor], z: torch.Tensor
+        self,
+        reals: torch.Tensor,
+        seq: List[torch.Tensor],
+        z: torch.Tensor,
+        batch_idx: int,
     ) -> TrainingStrategy.CRITIC_LOOP_RESULT:
         """Apply a critic training loop for WGAN-GP.
 
@@ -119,6 +123,7 @@ class WGANPlusGPTrainingStrategy:
             reals (torch.Tensor):
             seq (List[torch.Tensor]):
             z (torch.Tensor):
+            batch_idx (int):
 
         Returns:
             TrainingStrategy.CRITIC_LOOP_RESULT:
@@ -137,13 +142,14 @@ class WGANPlusGPTrainingStrategy:
         return {"loss": loss_critic}
 
     def generator_loop(
-        self, seq: List[torch.Tensor], z: torch.Tensor
+        self, seq: List[torch.Tensor], z: torch.Tensor, batch_idx: int
     ) -> TrainingStrategy.GENERATOR_LOOP_RESULT:
         """Apply a generator training loop for WGAN-GP.
 
         Args:
             seq (List[torch.Tensor]):
             z (torch.Tensor):
+            batch_idx (int):
 
         Returns:
             TrainingStrategy.GENERATOR_LOOP_RESULT:
@@ -155,7 +161,11 @@ class WGANPlusGPTrainingStrategy:
         return {"loss": loss_gen, "fakes": fakes}
 
     def validation_loop(
-        self, reals: torch.Tensor, seq: List[torch.Tensor], z: torch.Tensor
+        self,
+        reals: torch.Tensor,
+        seq: List[torch.Tensor],
+        z: torch.Tensor,
+        batch_idx: int,
     ) -> TrainingStrategy.VALIDATION_LOOP_RESULT:
         """Apply a validation loop for WGAN-GP.
 
@@ -163,6 +173,7 @@ class WGANPlusGPTrainingStrategy:
             reals (torch.Tensor):
             seq (List[torch.Tensor]):
             z (torch.Tensor):
+            batch_idx (int):
 
         Returns:
             TrainingStrategy.VALIDATION_LOOP_RESULT:

@@ -25,7 +25,7 @@ trainer:
 
 # strategy
 training_strategy_params:
-  cls: "${get_cls: comic_cover_generator.ml.model.training_strategy.wgan_gp.WGANPlusGPTrainingStrategy}"
+  cls: "${get_cls: comic_cover_generator.ml.model.training_strategy.nsgan.NSGANTrainingStrategy}"
   kwargs:
-    gradient_penalty_coef: 10.0
-    critic_update_interval: 1
+    regularization_penalty: 5
+    regularization_interval: 16

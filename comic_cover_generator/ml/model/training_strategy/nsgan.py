@@ -53,19 +53,19 @@ class NSGANTrainingStrategy:
     def __init__(
         self,
         regularization_penalty: float,
-        regularization_intervel: int,
+        regularization_interval: int,
     ) -> None:
         """Initialize an NSGAN training strategy.
 
         Args:
             regularization_penalty (float):
-            regularization_intervel (int):
+            regularization_interval (int):
 
         Returns:
             None:
         """
         self.regularization_penalty = regularization_penalty
-        self.regularization_interval = regularization_intervel
+        self.regularization_interval = regularization_interval
         self.model: GAN = None
 
     def attach_model(self, model: GAN) -> None:
@@ -80,7 +80,11 @@ class NSGANTrainingStrategy:
         self.model = model
 
     def critic_loop(
-        self, reals: torch.Tensor, seq: List[torch.Tensor], z: torch.Tensor
+        self,
+        reals: torch.Tensor,
+        seq: List[torch.Tensor],
+        z: torch.Tensor,
+        batch_idx: int,
     ) -> TrainingStrategy.CRITIC_LOOP_RESULT:
         """Apply a critic training loop.
 
@@ -94,18 +98,34 @@ class NSGANTrainingStrategy:
         """
         fakes = self.model.generator(z, seq)
 
+        reals.requires_grad_(True)
+
         fakes = diff_augment(fakes, self.model.augmentation_policy)
         reals = diff_augment(reals, self.model.augmentation_policy)
 
         logits_r = self.model.critic(reals)
         logits_f = self.model.critic(fakes)
 
-        loss = critic_loss(logits_r, logits_f)
+        if batch_idx % self.regularization_interval == 0:
+            (grad_real,) = torch.autograd.grad(
+                outputs=logits_f.sum(),
+                inputs=reals,
+                create_graph=True,
+                retain_graph=True,
+            )
+            grad_penalty = (
+                grad_real.pow(2).reshape(grad_real.shape[0], -1).sum(1).mean()
+            )
+        else:
+            grad_penalty = 0
+        loss = (
+            critic_loss(logits_r, logits_f) + grad_penalty * self.regularization_penalty
+        )
 
         return {"loss": loss}
 
     def generator_loop(
-        self, seq: List[torch.Tensor], z: torch.Tensor
+        self, seq: List[torch.Tensor], z: torch.Tensor, batch_idx: int
     ) -> TrainingStrategy.GENERATOR_LOOP_RESULT:
         """Apply a generator loop.
 
@@ -116,15 +136,37 @@ class NSGANTrainingStrategy:
         Returns:
             TrainingStrategy.GENERATOR_LOOP_RESULT:
         """
-        self.model.critic.freeze()
-        self.model.critic.eval()
-
-        self.model.generator.unfreeze()
-        self.model.generator.train()
-
         fakes = self.model.generator(z, seq)
         logits_f = self.model.critic(fakes)
 
         loss = generator_loss(logits_f)
 
-        return {"loss": loss}
+        return {"loss": loss, "fakes": fakes}
+
+    def validation_loop(
+        self,
+        reals: torch.Tensor,
+        seq: List[torch.Tensor],
+        z: torch.Tensor,
+        batch_idx: int,
+    ) -> TrainingStrategy.VALIDATION_LOOP_RESULT:
+        """Apply a validation loop.
+
+        Args:
+            reals (torch.Tensor):
+            seq (List[torch.Tensor]):
+            z (torch.Tensor):
+
+        Returns:
+            TrainingStrategy.VALIDATION_LOOP_RESULT:
+        """
+        fakes = self.model.generator(z, seq)
+
+        logits_r = self.model.critic(reals)
+        logits_f = self.model.critic(fakes)
+
+        return {
+            "generator_loss": generator_loss(logits_f),
+            "critic_loss": critic_loss(logits_r, logits_f),
+            "fakes": fakes,
+        }

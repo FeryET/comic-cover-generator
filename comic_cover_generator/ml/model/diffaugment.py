@@ -91,12 +91,13 @@ def rand_translation(x: torch.Tensor, ratio: float = 0.125) -> torch.Tensor:
     return x
 
 
-def rand_cutout(x: torch.Tensor, ratio: float = 0.5) -> torch.Tensor:
+# @torch.jit.script
+def rand_cutout(x: torch.Tensor, ratio: float = 0.25) -> torch.Tensor:
     """Apply random cutout augmentaion.
 
     Args:
         x (torch.Tensor): input tensor.
-        ratio (float, optional): Cutout ratio. Defaults to 0.5.
+        ratio (float, optional): Cutout ratio. Defaults to 0.25.
 
     Returns:
         torch.Tensor:
