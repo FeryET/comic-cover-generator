@@ -7,6 +7,3 @@ dependencies:
   - pytorch::pytorch=1.11.0
   - pytorch::torchvision=0.12.0
   - pytorch::cpuonly
-  - pip>=22.0.4
-  - pip:
-      - -e '.[dev]'
