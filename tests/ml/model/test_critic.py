@@ -5,10 +5,12 @@ from torch.nn import functional as F
 
 from comic_cover_generator.ml.model import Critic
 
+torch.manual_seed(42)
+
 
 @pytest.fixture(scope="module")
 def disc():
-    return Critic(channels=[512, 512], input_shape=(8, 8))
+    return Critic(channels=[128, 128], input_shape=(8, 8))
 
 
 @pytest.fixture(scope="module")
@@ -42,16 +44,16 @@ def test_critic_output_shape(disc: Critic, disc_input):
 
 
 @pytest.mark.training
-def test_critic_overfitting(disc: Critic, torch_random_generator: torch.Generator):
-    batch = torch.rand(1, 3, *disc.input_shape, generator=torch_random_generator)
-    opt = torch.optim.AdamW(params=disc.parameters(), lr=0.1)
-    target = torch.ones(1, 1, dtype=torch.float32)
+def test_critic_overfitting(disc: Critic):
+    batch = torch.ones(5, 3, *disc.input_shape) * 0.5
+    opt = torch.optim.AdamW(params=disc.parameters(), lr=0.02, eps=1e-8, weight_decay=0)
+    target = torch.ones(batch.size(0), 1, dtype=torch.float32)
     losses = []
     for _ in range(5):
         opt.zero_grad()
-        output = F.sigmoid(disc(batch))
-        l = F.binary_cross_entropy(output, target)
-        l.backward()
+        output = disc(batch)
+        cur_loss = F.binary_cross_entropy_with_logits(output, target)
+        cur_loss.backward()
         opt.step()
-        losses.append(l.detach().item())
+        losses.append(cur_loss.detach().item())
     assert np.isclose(losses[-1], 0, atol=0.01)
