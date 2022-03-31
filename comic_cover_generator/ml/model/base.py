@@ -155,10 +155,7 @@ class EqualConv2d(nn.Module):
         Returns:
             torch.Tensor:
         """
-        if self._bias is not None:
-            return self._bias * self.scale_b
-        else:
-            return self._bias
+        return self._bias
 
     def forward(self, input: Tensor) -> Tensor:
         """Apply an equalized conv2d.
