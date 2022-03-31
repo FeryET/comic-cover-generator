@@ -10,7 +10,7 @@ torch.manual_seed(42)
 
 @pytest.fixture(scope="module")
 def disc():
-    return Critic(channels=[128, 128], input_shape=(8, 8))
+    return Critic(channels=[128, 128, 128], input_shape=(8, 8))
 
 
 @pytest.fixture(scope="module")

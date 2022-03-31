@@ -2,31 +2,31 @@
 from typing import List
 
 import torch
-import torch.nn.functional as F
 
+from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.model.diffaugment import diff_augment
 from comic_cover_generator.ml.model.gan import GAN
 from comic_cover_generator.ml.model.training_strategy.base import TrainingStrategy
 
 
 @torch.jit.script
-def generator_loss(logits_g: torch.Tensor) -> torch.Tensor:
+def generator_loss(logits_f: torch.Tensor, eps: float) -> torch.Tensor:
     """Get generator loss for NSGAN.
 
     Args:
-        logits_g (torch.Tensor):
+        logits_f (torch.Tensor):
 
     Returns:
         torch.Tensor:
     """
-    loss = F.softplus(-logits_g).mean()
+    loss = -torch.mean(torch.log(torch.sigmoid(logits_f) + eps))
     return loss
 
 
-@torch.jit.script
 def critic_loss(
     logits_r: torch.Tensor,
     logits_f: torch.Tensor,
+    eps: float,
     generated_weight: float = 1,
     real_weight: float = 1,
 ) -> torch.Tensor:
@@ -41,9 +41,10 @@ def critic_loss(
     Returns:
         torch.Tensor:
     """
-    lr = F.softplus(-logits_r).mean() * real_weight
-    lf = F.softplus(logits_f).mean() * generated_weight
-    loss = lr + lf
+    loss = -torch.mean(
+        torch.log(torch.sigmoid(logits_r) + eps) * real_weight
+        + torch.log(1 - torch.sigmoid(logits_f) + eps) * generated_weight
+    )
     return loss
 
 
@@ -119,7 +120,8 @@ class NSGANTrainingStrategy:
         else:
             grad_penalty = 0
         loss = (
-            critic_loss(logits_r, logits_f) + grad_penalty * self.regularization_penalty
+            critic_loss(logits_r, logits_f, eps=Constants.eps)
+            + grad_penalty * self.regularization_penalty
         )
 
         return {"loss": loss}
@@ -139,7 +141,7 @@ class NSGANTrainingStrategy:
         fakes = self.model.generator(z, seq)
         logits_f = self.model.critic(fakes)
 
-        loss = generator_loss(logits_f)
+        loss = generator_loss(logits_f, eps=Constants.eps)
 
         return {"loss": loss, "fakes": fakes}
 
@@ -166,7 +168,7 @@ class NSGANTrainingStrategy:
         logits_f = self.model.critic(fakes)
 
         return {
-            "generator_loss": generator_loss(logits_f),
-            "critic_loss": critic_loss(logits_r, logits_f),
+            "generator_loss": generator_loss(logits_f, eps=Constants.eps),
+            "critic_loss": critic_loss(logits_r, logits_f, eps=Constants.eps),
             "fakes": fakes,
         }

@@ -55,6 +55,24 @@ class CriticParams(TypedDict):
     input_shape: Tuple[int, int]
 
 
+class MinibatchStdMean(nn.Module):
+    """Mini batch std mean layer from ProGAN paper."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Applies a minibatch std mean for diversity checking in discriminator.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        mean_std = torch.mean(torch.std(x, dim=1), dim=0).expand(
+            x.size(0), 1, x.size(2), x.size(3)
+        )
+        return torch.cat((x, mean_std), dim=1)
+
+
 class Critic(nn.Module, Freezeable):
     """critic Model based on MobileNetV3."""
 
@@ -76,12 +94,13 @@ class Critic(nn.Module, Freezeable):
 
         self.from_rgb = nn.Conv2d(3, self.channels[0], 1, 1, 0)
 
-        self.features = nn.Sequential(
-            *[
-                CriticResidualBlock(in_ch, out_ch)
-                for in_ch, out_ch in zip(channels, channels[1:])
-            ]
-        )
+        self.features = nn.Sequential()
+
+        for idx, (in_ch, out_ch) in enumerate(zip(channels, channels[1:]), start=1):
+            if idx == len(channels) - 1:
+                self.features.append(MinibatchStdMean())
+                in_ch = in_ch + 1
+            self.features.append(CriticResidualBlock(in_ch, out_ch))
 
         self.clf = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),

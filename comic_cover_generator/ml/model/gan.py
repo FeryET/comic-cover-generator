@@ -203,6 +203,7 @@ class GAN(pl.LightningModule):
             Dict[str, Any]: The output of the training step.
         """
         reals, z, seq = self._extract_inputs(batch)
+        B = reals.size(0)
         # train generator
         if optimizer_idx == 0:
             self.critic.freeze()
@@ -233,6 +234,7 @@ class GAN(pl.LightningModule):
             prog_bar=True,
             on_step=True,
             on_epoch=True,
+            batch_size=B,
         )
         return output
 
@@ -265,6 +267,7 @@ class GAN(pl.LightningModule):
             Dict[str, Any]:
         """
         reals, z, seq = self._extract_inputs(batch)
+        B = reals.size(0)
 
         output = self.training_strategy.validation_loop(reals, seq, z, batch_idx)
 
@@ -281,6 +284,7 @@ class GAN(pl.LightningModule):
             prog_bar=True,
             on_epoch=True,
             on_step=False,
+            batch_size=B,
         )
 
         if batch_idx == 0:
