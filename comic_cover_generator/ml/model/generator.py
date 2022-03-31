@@ -96,6 +96,7 @@ class Generator(nn.Module, Freezeable):
 
         self.to_rgb = (
             nn.Conv2d(self.channels[-1], 3, kernel_size=1, padding=0, stride=1),
+            nn.Tanh(),
         )
 
     def forward(
