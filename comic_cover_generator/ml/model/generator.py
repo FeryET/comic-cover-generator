@@ -99,10 +99,7 @@ class Generator(nn.Module, Freezeable):
                 ),
             )
 
-        self.to_rgb = (
-            nn.Conv2d(self.conv_channels[-1], 3, kernel_size=1, padding=0, stride=1),
-            nn.Tanh(),
-        )
+        self.rescale_rgb = nn.Tanh()
 
     def forward(
         self,
@@ -130,6 +127,7 @@ class Generator(nn.Module, Freezeable):
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, rgb)
+        rgb = self.rescale_rgb(rgb)
         return rgb
 
     def freeze(self):
