@@ -87,6 +87,8 @@ class Generator(nn.Module, Freezeable):
             nn.Unflatten(-1, (1, 1)),
         )
 
+        self.title_gate = nn.Sequential(nn.Linear(self.w_dim, 1), nn.Sigmoid())
+
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
         self.features = nn.ModuleList()
@@ -121,7 +123,8 @@ class Generator(nn.Module, Freezeable):
         # repeating the constant parameter for whole batch size.
         x = self.cte.repeat(B, 1, 1, 1)
         # applying title embedding to the sequence.
-        embed = self.title_embed(title_seq)
+        embed_gate = self.title_gate(w).reshape(B, 1, 1, 1)
+        embed = self.title_embed(title_seq) * embed_gate
         # adding title embedding to the constant input
         x = x + embed
         rgb = None

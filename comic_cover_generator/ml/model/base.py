@@ -213,14 +213,12 @@ class Seq2Vec(nn.Module):
         self.channels = channels
         self.mapper = nn.Sequential(
             nn.Conv1d(256, channels[0], kernel_size=7, stride=2, padding=3),
-            nn.BatchNorm1d(channels[0]),
             nn.LeakyReLU(negative_slope=0.1),
         )
         for in_ch, out_ch in zip(channels, channels[1:]):
             self.mapper.append(
                 nn.Sequential(
                     nn.Conv1d(in_ch, out_ch, kernel_size=3, stride=2, padding=1),
-                    nn.BatchNorm1d(out_ch),
                     nn.LeakyReLU(negative_slope=0.1),
                 )
             )
