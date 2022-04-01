@@ -36,18 +36,30 @@ class Generator(nn.Module, Freezeable):
         self,
         latent_dim: int = 256,
         w_dim: int = 256,
-        channels: Tuple[int, ...] = (512, 256, 128, 64, 32),
+        conv_channels: Tuple[int, ...] = (512, 256, 128, 64, 32),
+        char_cnn_channels: Tuple[int, ...] = (256, 256, 256),
         output_shape: Tuple[int, int] = (64, 64),
-        sequence_gru_hidden_size: int = 64,
-        sequence_embed_dim: int = 32,
-        sequence_gru_layers: int = 2,
         mapping_network_lr_coef: float = 1e-2,
     ) -> None:
-        """Initialize an instance."""
+        """Initialize the generator.
+
+        Args:
+            latent_dim (int, optional): Defaults to 256.
+            w_dim (int, optional): Defaults to 256.
+            conv_channels (Tuple[int, ...], optional): Defaults to (512, 256, 128, 64, 32).
+            char_cnn_channels (Tuple[int, ...], optional): Defaults to (256, 256, 256).
+            output_shape (Tuple[int, int], optional): Defaults to (64, 64).
+            mapping_network_lr_coef (float, optional): Defaults to 1e-2.
+
+        Raises:
+            ValueError: _description_
+        """
         super().__init__()
 
-        if output_shape[0] != int(4 * 2 ** (len(channels) - 1)):
-            computed_shape = tuple(int(4 * 2 ** (len(channels) - 1)) for _ in range(2))
+        if output_shape[0] != int(4 * 2 ** (len(conv_channels) - 1)):
+            computed_shape = tuple(
+                int(4 * 2 ** (len(conv_channels) - 1)) for _ in range(2)
+            )
             raise ValueError(
                 f"Mismatch between output shape: {output_shape} and channels specified"
                 f" which results in computed output shape of {computed_shape}. Each"
@@ -55,8 +67,6 @@ class Generator(nn.Module, Freezeable):
                 " upsampler."
             )
 
-        # bidirectional GRU
-        self.seq2vec_dim = sequence_gru_hidden_size * 2
         # mapping network properties
         self.latent_dim = latent_dim
         self.w_dim = w_dim
@@ -64,28 +74,23 @@ class Generator(nn.Module, Freezeable):
         self.output_shape = output_shape
         self.mapping_network_lr_coef = mapping_network_lr_coef
 
-        self.channels = channels
+        self.conv_channels = conv_channels
 
         self.cte = nn.Parameter(
-            torch.ones(1, self.channels[0], 4, 4),
+            torch.ones(1, self.conv_channels[0], 4, 4),
             requires_grad=True,
         )
 
         self.title_embed = nn.Sequential(
-            Seq2Vec(
-                embed_dim=sequence_embed_dim,
-                hidden_size=sequence_gru_hidden_size,
-                num_layers=sequence_gru_layers,
-            ),
-            EqualLinear(self.seq2vec_dim, self.channels[0]),
-            nn.LeakyReLU(negative_slope=0.1),
-            nn.Unflatten(-1, (self.channels[0], 1, 1)),
+            Seq2Vec(char_cnn_channels),
+            nn.Conv1d(char_cnn_channels[-1], conv_channels[0], kernel_size=1),
+            nn.Unflatten(-1, (1, 1)),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
         self.features = nn.ModuleList()
-        for in_ch, out_ch in zip(channels, channels[1:]):
+        for in_ch, out_ch in zip(conv_channels, conv_channels[1:]):
             self.features.append(
                 GeneratorBlock(
                     in_channels=in_ch,
@@ -95,7 +100,7 @@ class Generator(nn.Module, Freezeable):
             )
 
         self.to_rgb = (
-            nn.Conv2d(self.channels[-1], 3, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(self.conv_channels[-1], 3, kernel_size=1, padding=0, stride=1),
             nn.Tanh(),
         )
 

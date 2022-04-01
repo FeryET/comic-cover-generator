@@ -53,11 +53,13 @@ def _resize_image_to_shape(
 GOOD_CHARS = set(string.printable) - set(string.whitespace)
 
 
-def _map_string_to_id_tensor(title_str: str, max_len=10) -> Tensor:
+def _map_string_to_id_tensor(title_str: str, max_len=10, min_length=2) -> Tensor:
+    if len(title_str) < min_length:
+        title_str += "".join(["$" for _ in range(len(title_str) - min_length)])
     result = [
         ord(char)
         for word in title_str.strip().lower().split()
-        for char in word
+        for char in word + " "
         if char in GOOD_CHARS
     ]
     start = random.randint(0, max(len(result) - max_len, 1))

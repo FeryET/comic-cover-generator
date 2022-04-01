@@ -5,12 +5,7 @@ from typing import Sequence
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-from torch.nn.utils.rnn import (
-    PackedSequence,
-    _packed_sequence_init,
-    pack_sequence,
-    unpack_sequence,
-)
+from torch.nn.utils.rnn import PackedSequence, _packed_sequence_init, pad_sequence
 
 from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.typing import Protocol
@@ -203,37 +198,34 @@ class Seq2Vec(nn.Module):
 
     def __init__(
         self,
-        embed_dim: int = 32,
-        hidden_size: int = 64,
-        num_layers: int = 2,
-        n_characters: int = 256,
+        channels: Sequence[int],
         padding_idx: int = 0,
     ) -> None:
         """Initialize a seq2vec instance.
 
         Args:
-            embed_dim (int, optional): Defaults to 32.
-            hidden_size (int, optional): Defaults to 64.
-            num_layers (int, optiona): Defaults to 2.
-            n_characters (int, optional): vocab size. Defaults to 256.
+            channels (Sequence[int]): Channels of Conv1ds.
             padding_idx (int, optional): Defaults to 0.
         """
         super().__init__()
-        self.embed = PackSequenceEmbedding(
-            n_characters,
-            embed_dim,
-            padding_idx=padding_idx,
-        )
+        self.padding_idx = padding_idx
 
-        self.hidden_size = hidden_size
-
-        self.gru = nn.GRU(
-            input_size=embed_dim,
-            hidden_size=self.hidden_size,
-            num_layers=num_layers,
-            bias=True,
-            bidirectional=True,
+        self.channels = channels
+        self.mapper = nn.Sequential(
+            nn.Conv1d(256, channels[0], kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm1d(channels[0]),
+            nn.LeakyReLU(negative_slope=0.1),
         )
+        for in_ch, out_ch in zip(channels, channels[1:]):
+            self.mapper.append(
+                nn.Sequential(
+                    nn.Conv1d(in_ch, out_ch, kernel_size=3, stride=2, padding=1),
+                    nn.BatchNorm1d(out_ch),
+                    nn.LeakyReLU(negative_slope=0.1),
+                )
+            )
+
+        self.pool = nn.AdaptiveAvgPool1d(1)
 
     def forward(self, seq: Sequence[Tensor]) -> Tensor:
         """Map sequence to vector.
@@ -244,21 +236,10 @@ class Seq2Vec(nn.Module):
         Returns:
             Tensor:
         """
-        # pack the sequences
-        seq_packed = pack_sequence(
-            seq,
-            enforce_sorted=True,
-        ).to(seq[0].device)
-
-        # embed the packed sequence
-        x = self.embed(seq_packed)
-
-        # get the lstm output
-        x, _ = self.gru(x)
-
-        # keep only the last cell's output
-        x = torch.stack([row[0] for row in unpack_sequence(x)])
-
+        seq = pad_sequence(seq, batch_first=True, padding_value=self.padding_idx)
+        x = F.one_hot(seq, num_classes=256).permute((0, 2, 1)).float()
+        x = self.mapper(x)
+        x = self.pool(x)
         return x
 
 
