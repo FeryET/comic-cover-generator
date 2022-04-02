@@ -3,8 +3,11 @@ generator_params:
     latent_dim: 256
     w_dim: 256
     conv_channels: [512, 256, 128, 64, 32]
-    char_cnn_channels: [256, 256, 256]
     output_shape: [64, 64]
+    embed_dim: 64
+    n_heads: 8
+    dim_feedforward: 128
+    num_layers: 8
     mapping_network_lr_coef: 1e-2
 critic_params:
     channels: [32, 64, 128, 256, 512]

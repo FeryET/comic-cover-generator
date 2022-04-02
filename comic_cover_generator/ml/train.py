@@ -1,9 +1,11 @@
 """Training script."""
 
+import os
+
 import hydra
 import mlflow
 import pytorch_lightning as pl
-from hydra.utils import get_class, instantiate
+from hydra.utils import get_class, get_original_cwd, instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from comic_cover_generator.ml.constants import Constants
@@ -67,6 +69,7 @@ def train(cfg: DictConfig):
 
     # fix epsilon
     Constants.eps = config.get("eps", 1e-7 if is_float16 else 1e-8)
+    Constants.cache_dir = os.path.join(get_original_cwd(), Constants.cache_dir)
 
     # init model
     model = GAN(

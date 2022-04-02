@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from torch.nn.utils.rnn import PackedSequence, _packed_sequence_init, pad_sequence
 
 from comic_cover_generator.ml.constants import Constants
-from comic_cover_generator.typing import Protocol
+from comic_cover_generator.typing import Protocol, TypedDict
 
 
 class Freezeable(Protocol):
@@ -193,37 +193,89 @@ class PackSequenceEmbedding(nn.Embedding):
         ).to(embeds.device)
 
 
+class PositionalEncoding(nn.Module):
+    """Positional Encoding Layer similar to Attention is All You Need."""
+
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        """Initializes a positional encoding layer.
+
+        Args:
+            d_model (int): embedding dimension.
+            dropout (float, optional): Defaults to 0.1.
+            max_len (int, optional):  Defaults to 100.
+        """
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        )
+        pe = torch.zeros(1, max_len, d_model)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Apply positional encoding on input.
+
+        Args:
+            x: Tensor, shape [batch_size, seq, embedding_dim]
+        """
+        x = x + self.pe[:, x.size(1)]
+        return self.dropout(x)
+
+
+class Seq2VecParams(TypedDict):
+    """Parameters of Seq2Vec model."""
+
+    d_model: int
+    n_heads: int
+    dim_feedforward: int
+    num_layers: int
+    max_len: int
+    padding_idx: int
+
+
 class Seq2Vec(nn.Module):
     """A layer which maps a sequence of varying length to vectors."""
 
     def __init__(
         self,
-        channels: Sequence[int],
+        embed_dim: int = 32,
+        n_heads: int = 4,
+        dim_feedforward: int = 128,
+        num_layers: int = 4,
+        max_len: int = 100,
         padding_idx: int = 0,
     ) -> None:
         """Initialize a seq2vec instance.
 
         Args:
-            channels (Sequence[int]): Channels of Conv1ds.
+            embed_dim (int, optional): Defaults to 32.
+            n_heads (int, optional): Defaults to 4.
+            dim_feedforward (int, optional): Defaults to 128.
+            num_layers (int, optional): Defaults to 4.
+            max_len (int, optional): Defaults to 100.
             padding_idx (int, optional): Defaults to 0.
         """
         super().__init__()
+        self.embed_dim = embed_dim
+        self.n_heads = n_heads
+
         self.padding_idx = padding_idx
 
-        self.channels = channels
-        self.mapper = nn.Sequential(
-            nn.Conv1d(256, channels[0], kernel_size=7, stride=2, padding=3),
-            nn.LeakyReLU(negative_slope=0.1),
+        self.embedding = nn.Embedding(256, self.embed_dim, padding_idx=self.padding_idx)
+        self.pe = PositionalEncoding(self.embed_dim, max_len=max_len)
+        self.transformer_encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model=self.embed_dim,
+                nhead=self.n_heads,
+                dim_feedforward=dim_feedforward,
+                batch_first=True,
+            ),
+            num_layers=num_layers,
         )
-        for in_ch, out_ch in zip(channels, channels[1:]):
-            self.mapper.append(
-                nn.Sequential(
-                    nn.Conv1d(in_ch, out_ch, kernel_size=3, stride=2, padding=1),
-                    nn.LeakyReLU(negative_slope=0.1),
-                )
-            )
-
-        self.pool = nn.AdaptiveAvgPool1d(1)
 
     def forward(self, seq: Sequence[Tensor]) -> Tensor:
         """Map sequence to vector.
@@ -235,9 +287,11 @@ class Seq2Vec(nn.Module):
             Tensor:
         """
         seq = pad_sequence(seq, batch_first=True, padding_value=self.padding_idx)
-        x = F.one_hot(seq, num_classes=256).permute((0, 2, 1)).float()
-        x = self.mapper(x)
-        x = self.pool(x)
+        key_padding_mask = seq == self.padding_idx
+        x = self.embedding(seq) * math.sqrt(self.embed_dim)
+        x = self.pe(x)
+        x = self.transformer_encoder.forward(x, src_key_padding_mask=key_padding_mask)
+        x = torch.mean(x, dim=1)
         return x
 
 

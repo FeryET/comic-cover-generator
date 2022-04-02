@@ -21,11 +21,13 @@ class GeneratorParams(TypedDict):
 
     latent_dim: int
     w_dim: int
-    channels: Tuple[int, ...]
+    conv_channels: Tuple[int, ...]
     output_shape: Tuple[int, int]
-    sequence_gru_hidden_size: int
-    sequence_embed_dim: int
-    sequence_gru_layers: int
+    n_heads: int
+    dim_feedforward: int
+    num_layers: int
+    max_len: int
+    padding_idx: int
     mapping_network_lr_coef: float
 
 
@@ -37,8 +39,13 @@ class Generator(nn.Module, Freezeable):
         latent_dim: int = 256,
         w_dim: int = 256,
         conv_channels: Tuple[int, ...] = (512, 256, 128, 64, 32),
-        char_cnn_channels: Tuple[int, ...] = (256, 256, 256),
         output_shape: Tuple[int, int] = (64, 64),
+        embed_dim: int = 64,
+        n_heads: int = 8,
+        dim_feedforward: int = 128,
+        num_layers: int = 4,
+        max_len: int = 100,
+        padding_idx: int = 0,
         mapping_network_lr_coef: float = 1e-2,
     ) -> None:
         """Initialize the generator.
@@ -66,6 +73,8 @@ class Generator(nn.Module, Freezeable):
                 " value in channels corresponds to a block which includes an 2x"
                 " upsampler."
             )
+        if (embed_dim * n_heads) % 16 != 0:
+            raise ValueError("embed_dim * n_heads should be divisible by 16.")
 
         # mapping network properties
         self.latent_dim = latent_dim
@@ -75,17 +84,29 @@ class Generator(nn.Module, Freezeable):
         self.mapping_network_lr_coef = mapping_network_lr_coef
 
         self.conv_channels = list(conv_channels)
-
-        self.cte = nn.Parameter(
-            torch.ones(1, self.conv_channels[0], 4, 4),
-            requires_grad=True,
-        )
+        self.embed_dim = embed_dim
 
         self.title_embed = nn.Sequential(
-            Seq2Vec(char_cnn_channels),
-            nn.Conv1d(char_cnn_channels[-1], 1 * 4 * 4, kernel_size=1),
+            Seq2Vec(
+                embed_dim=embed_dim,
+                n_heads=n_heads,
+                dim_feedforward=dim_feedforward,
+                num_layers=num_layers,
+                max_len=max_len,
+                padding_idx=padding_idx,
+            ),
+            nn.Unflatten(1, unflattened_size=((self.embed_dim // 16, 4, 4))),
+            nn.Conv2d(
+                self.embed_dim // 16,
+                conv_channels[0],
+                kernel_size=3,
+                padding=1,
+                stride=1,
+                bias=False,
+            ),
+            nn.InstanceNorm2d(conv_channels[0], affine=True),
+            nn.LeakyReLU(0.1),
         )
-        self.conv_channels[0] += 1
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
@@ -115,14 +136,10 @@ class Generator(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        B = z.size(0)
         # enriching the latent vector
         w = self.latent_mapper(z)
-        # repeating the constant parameter for whole batch size.
-        x = self.cte.repeat(B, 1, 1, 1)
         # adding title embedding to the constant input
-        embed = self.title_embed(title_seq).reshape(B, 1, 4, 4)
-        x = torch.cat((x, embed), dim=1)
+        x = self.title_embed(title_seq)
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, rgb)
@@ -157,8 +174,7 @@ class Generator(nn.Module, Freezeable):
             },
             {
                 "params": list(self.features.parameters())
-                + list(self.title_embed.parameters())
-                + [self.cte],
+                + list(self.title_embed.parameters()),
                 "lr": lr,
             },
         ]

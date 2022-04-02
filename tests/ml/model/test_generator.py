@@ -4,7 +4,7 @@ from unittest import mock
 import pytest
 import torch
 
-from comic_cover_generator.ml.model import Critic, Generator
+from comic_cover_generator.ml.model import Generator
 
 
 @pytest.fixture(scope="module")
@@ -12,8 +12,9 @@ def gen():
     return Generator(
         16,
         16,
-        (8, 4, 2),
-        char_cnn_channels=(8, 8),
+        (128, 4, 2),
+        embed_dim=16,
+        n_heads=1,
         output_shape=(16, 16),
     )
 
