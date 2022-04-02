@@ -74,7 +74,7 @@ class Generator(nn.Module, Freezeable):
         self.output_shape = output_shape
         self.mapping_network_lr_coef = mapping_network_lr_coef
 
-        self.conv_channels = conv_channels
+        self.conv_channels = list(conv_channels)
 
         self.cte = nn.Parameter(
             torch.ones(1, self.conv_channels[0], 4, 4),
@@ -83,16 +83,14 @@ class Generator(nn.Module, Freezeable):
 
         self.title_embed = nn.Sequential(
             Seq2Vec(char_cnn_channels),
-            nn.Conv1d(char_cnn_channels[-1], conv_channels[0], kernel_size=1),
-            nn.Unflatten(-1, (1, 1)),
+            nn.Conv1d(char_cnn_channels[-1], 1 * 4 * 4, kernel_size=1),
         )
-
-        self.title_gate = nn.Sequential(nn.Linear(self.w_dim, 1), nn.Sigmoid())
+        self.conv_channels[0] += 1
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
         self.features = nn.ModuleList()
-        for in_ch, out_ch in zip(conv_channels, conv_channels[1:]):
+        for in_ch, out_ch in zip(self.conv_channels, self.conv_channels[1:]):
             self.features.append(
                 GeneratorBlock(
                     in_channels=in_ch,
@@ -122,11 +120,9 @@ class Generator(nn.Module, Freezeable):
         w = self.latent_mapper(z)
         # repeating the constant parameter for whole batch size.
         x = self.cte.repeat(B, 1, 1, 1)
-        # applying title embedding to the sequence.
-        embed_gate = self.title_gate(w).reshape(B, 1, 1, 1)
-        embed = self.title_embed(title_seq) * embed_gate
         # adding title embedding to the constant input
-        x = x + embed
+        embed = self.title_embed(title_seq).reshape(B, 1, 4, 4)
+        x = torch.cat((x, embed), dim=1)
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, rgb)
