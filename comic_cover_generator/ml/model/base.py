@@ -259,6 +259,11 @@ class Seq2Vec(nn.Module, Freezeable):
 
         if self.transformer_config.model_type == "bert":
             self.transformer.pooler.activation = nn.LeakyReLU(negative_slope=0.1)
+        else:
+            self.pooler = nn.Sequential(
+                nn.Linear(self.hidden_size, self.hidden_size, bias=True),
+                nn.LeakyReLU(negative_slope=0.1),
+            )
 
     def forward(self, seq: BatchEncoding) -> Tensor:
         """Map sequence to vector.
@@ -269,7 +274,11 @@ class Seq2Vec(nn.Module, Freezeable):
         Returns:
             Tensor:
         """
-        x = self.transformer(**seq).last_hidden_state[:, 0]
+        x = self.transformer(**seq)
+        if "pooler_output" in x:
+            x = x.pooler_output
+        else:
+            x = self.pooler(x.last_hidden_state[:, 0])
         return x
 
     def freeze(self):
