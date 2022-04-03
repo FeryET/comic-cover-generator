@@ -4,6 +4,7 @@ from typing import Tuple
 import torch
 from torch import nn
 
+from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.model.base import EqualConv2d, EqualLinear, Freezeable
 from comic_cover_generator.typing import TypedDict
 
@@ -58,6 +59,18 @@ class CriticParams(TypedDict):
 class MinibatchStdMean(nn.Module):
     """Mini batch std mean layer from ProGAN paper."""
 
+    def __init__(self, eps: float = None) -> None:
+        """Initializes the minibatch std mean layer.
+
+        Args:
+            eps (float, optional): Defaults to None.
+        """
+        super().__init__()
+        if eps is None:
+            self.eps = Constants.eps
+        else:
+            self.eps = eps
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Applies a minibatch std mean for diversity checking in discriminator.
 
@@ -67,10 +80,9 @@ class MinibatchStdMean(nn.Module):
         Returns:
             torch.Tensor:
         """
-        mean_std = torch.mean(torch.std(x, dim=1), dim=0).expand(
-            x.size(0), 1, x.size(2), x.size(3)
-        )
-        return torch.cat((x, mean_std), dim=1)
+        f_std = x.var(dim=0, keepdim=True).add(self.eps).sqrt().mean()
+        f_std = f_std.expand(x.size(0), 1, x.size(2), x.size(3))
+        return torch.cat((x, f_std), dim=1)
 
 
 class Critic(nn.Module, Freezeable):
