@@ -1,7 +1,7 @@
 """Loss module."""
-from typing import List
 
 import torch
+from transformers import BatchEncoding
 
 from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.model.diffaugment import diff_augment
@@ -83,7 +83,7 @@ class NSGANTrainingStrategy:
     def critic_loop(
         self,
         reals: torch.Tensor,
-        seq: List[torch.Tensor],
+        seq: BatchEncoding,
         z: torch.Tensor,
         batch_idx: int,
     ) -> TrainingStrategy.CRITIC_LOOP_RESULT:
@@ -91,7 +91,7 @@ class NSGANTrainingStrategy:
 
         Args:
             reals (torch.Tensor):
-            seq (List[torch.Tensor]):
+            seq (BatchEncoding)::
             z (torch.Tensor):
 
         Returns:
@@ -127,12 +127,12 @@ class NSGANTrainingStrategy:
         return {"loss": loss}
 
     def generator_loop(
-        self, seq: List[torch.Tensor], z: torch.Tensor, batch_idx: int
+        self, seq: BatchEncoding, z: torch.Tensor, batch_idx: int
     ) -> TrainingStrategy.GENERATOR_LOOP_RESULT:
         """Apply a generator loop.
 
         Args:
-            seq (List[torch.Tensor]):
+            seq (BatchEncoding)::
             z (torch.Tensor):
 
         Returns:
@@ -148,7 +148,7 @@ class NSGANTrainingStrategy:
     def validation_loop(
         self,
         reals: torch.Tensor,
-        seq: List[torch.Tensor],
+        seq: BatchEncoding,
         z: torch.Tensor,
         batch_idx: int,
     ) -> TrainingStrategy.VALIDATION_LOOP_RESULT:
@@ -156,7 +156,7 @@ class NSGANTrainingStrategy:
 
         Args:
             reals (torch.Tensor):
-            seq (List[torch.Tensor]):
+            seq (BatchEncoding)::
             z (torch.Tensor):
 
         Returns:

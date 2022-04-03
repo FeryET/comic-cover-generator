@@ -3,6 +3,8 @@ defaults:
   - model: gan
   - _self_
 
+transformer_model: "prajjwal1/bert-tiny"
+
 logger:
   tracking_uri: "file://${hydra:runtime.cwd}/experiment_outputs/mlruns/"
 
@@ -12,7 +14,7 @@ trainer:
   gpus: 0
   amp_backend: "apex"
   auto_lr_find: False
-  auto_scale_batch_size: binsearch
+  auto_scale_batch_size: ""
   gradient_clip_val: 0.5
   enable_progress_bar: True
   callbacks:

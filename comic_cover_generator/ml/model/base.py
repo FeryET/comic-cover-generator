@@ -1,11 +1,11 @@
 """Base Module."""
 import math
-from typing import Sequence
 
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-from torch.nn.utils.rnn import PackedSequence, _packed_sequence_init, pad_sequence
+from torch.nn.utils.rnn import PackedSequence, _packed_sequence_init
+from transformers import AutoConfig, AutoModel, BatchEncoding, BertConfig
 
 from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.typing import Protocol, TypedDict
@@ -229,70 +229,66 @@ class PositionalEncoding(nn.Module):
 class Seq2VecParams(TypedDict):
     """Parameters of Seq2Vec model."""
 
-    d_model: int
-    n_heads: int
-    dim_feedforward: int
-    num_layers: int
-    max_len: int
-    padding_idx: int
+    transformer_model: str
 
 
-class Seq2Vec(nn.Module):
+class Seq2Vec(nn.Module, Freezeable):
     """A layer which maps a sequence of varying length to vectors."""
 
-    def __init__(
-        self,
-        embed_dim: int = 32,
-        n_heads: int = 4,
-        dim_feedforward: int = 128,
-        num_layers: int = 4,
-        max_len: int = 100,
-        padding_idx: int = 0,
-    ) -> None:
+    def __init__(self, transformer_model: str) -> None:
         """Initialize a seq2vec instance.
 
         Args:
-            embed_dim (int, optional): Defaults to 32.
-            n_heads (int, optional): Defaults to 4.
-            dim_feedforward (int, optional): Defaults to 128.
-            num_layers (int, optional): Defaults to 4.
-            max_len (int, optional): Defaults to 100.
-            padding_idx (int, optional): Defaults to 0.
+            transformer_model (str):
+            max_length (int):
+
+        Returns:
+            None:
         """
         super().__init__()
-        self.embed_dim = embed_dim
-        self.n_heads = n_heads
 
-        self.padding_idx = padding_idx
-
-        self.embedding = nn.Embedding(256, self.embed_dim, padding_idx=self.padding_idx)
-        self.pe = PositionalEncoding(self.embed_dim, max_len=max_len)
-        self.transformer_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model=self.embed_dim,
-                nhead=self.n_heads,
-                dim_feedforward=dim_feedforward,
-                batch_first=True,
-            ),
-            num_layers=num_layers,
+        self.transformer = AutoModel.from_pretrained(
+            transformer_model, cache_dir=Constants.cache_dir
+        )
+        self.transformer.train()
+        self.transformer_config: BertConfig = AutoConfig.from_pretrained(
+            transformer_model, cache_dir=Constants.cache_dir
         )
 
-    def forward(self, seq: Sequence[Tensor]) -> Tensor:
+        self.hidden_size = self.transformer_config.hidden_size
+
+        if self.transformer_config.model_type == "bert":
+            self.transformer.pooler.activation = nn.LeakyReLU(negative_slope=0.1)
+
+    def forward(self, seq: BatchEncoding) -> Tensor:
         """Map sequence to vector.
 
         Args:
-            seq (Sequence[Tensor]):
+            seq (BatchEncoding):
 
         Returns:
             Tensor:
         """
-        seq = pad_sequence(seq, batch_first=True, padding_value=self.padding_idx)
-        key_padding_mask = seq == self.padding_idx
-        x = self.embedding(seq) * math.sqrt(self.embed_dim)
-        x = self.pe(x)
-        x = self.transformer_encoder.forward(x, src_key_padding_mask=key_padding_mask)
-        x = torch.mean(x, dim=1)
+        x = self.transformer(**seq).last_hidden_state[:, 0]
         return x
+
+    def freeze(self):
+        """Freeze generator layers."""
+        for p in self.parameters():
+            p.requires_grad = False
+
+    def unfreeze(self):
+        """Unfreeze generator layers.
+
+        Raises:
+            TypeError:
+        """
+        self.freeze()
+        if self.transformer_config.model_type == "bert":
+            for p in self.transformer.pooler.parameters():
+                p.requires_grad = True
+        else:
+            raise TypeError("Currently only bert models are supported.")
 
 
 class ModulatedConv2D(nn.Module):

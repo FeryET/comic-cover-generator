@@ -71,16 +71,21 @@ def train(cfg: DictConfig):
     Constants.eps = config.get("eps", 1e-7 if is_float16 else 1e-8)
     Constants.cache_dir = os.path.join(get_original_cwd(), Constants.cache_dir)
 
+    config["model"]["generator_params"]["transformer_model"] = config["datamodule"][
+        "transformer_model"
+    ] = config["transformer_model"]
+
+    # init data
+    datamodule = CoverDataModule(**config["datamodule"])
+
+    datamodule.prepare_data()
+    datamodule.setup()
+    generate_training_images_grid(datamodule.subsets.val)
+
     # init model
     model = GAN(
         training_strategy_params=config["training_strategy_params"], **config["model"]
     )
-
-    # init data
-    datamodule = CoverDataModule(**config["datamodule"])
-    datamodule.prepare_data()
-    datamodule.setup()
-    generate_training_images_grid(datamodule.subsets.val)
 
     # init trainer
     trainer = pl.Trainer(**config["trainer"])

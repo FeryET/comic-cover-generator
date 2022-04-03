@@ -1,8 +1,8 @@
 """Loss module."""
-from typing import List
 
 import torch
 from torch import nn
+from transformers import BatchEncoding
 
 from comic_cover_generator.ml.model.diffaugment import diff_augment
 from comic_cover_generator.ml.model.gan import GAN
@@ -113,7 +113,7 @@ class WGANPlusGPTrainingStrategy:
     def critic_loop(
         self,
         reals: torch.Tensor,
-        seq: List[torch.Tensor],
+        seq: BatchEncoding,
         z: torch.Tensor,
         batch_idx: int,
     ) -> TrainingStrategy.CRITIC_LOOP_RESULT:
@@ -121,7 +121,7 @@ class WGANPlusGPTrainingStrategy:
 
         Args:
             reals (torch.Tensor):
-            seq (List[torch.Tensor]):
+            seq (BatchEncoding)::
             z (torch.Tensor):
             batch_idx (int):
 
@@ -142,12 +142,12 @@ class WGANPlusGPTrainingStrategy:
         return {"loss": loss_critic}
 
     def generator_loop(
-        self, seq: List[torch.Tensor], z: torch.Tensor, batch_idx: int
+        self, seq: BatchEncoding, z: torch.Tensor, batch_idx: int
     ) -> TrainingStrategy.GENERATOR_LOOP_RESULT:
         """Apply a generator training loop for WGAN-GP.
 
         Args:
-            seq (List[torch.Tensor]):
+            seq (BatchEncoding)::
             z (torch.Tensor):
             batch_idx (int):
 
@@ -163,7 +163,7 @@ class WGANPlusGPTrainingStrategy:
     def validation_loop(
         self,
         reals: torch.Tensor,
-        seq: List[torch.Tensor],
+        seq: BatchEncoding,
         z: torch.Tensor,
         batch_idx: int,
     ) -> TrainingStrategy.VALIDATION_LOOP_RESULT:
@@ -171,7 +171,7 @@ class WGANPlusGPTrainingStrategy:
 
         Args:
             reals (torch.Tensor):
-            seq (List[torch.Tensor]):
+            seq (BatchEncoding)::
             z (torch.Tensor):
             batch_idx (int):
 

@@ -14,6 +14,12 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
+            "args": [
+                "++datamodule.dataset_params.preload_images=True",
+                "++datamodule.batch_size=4",
+                "++datamodule.subsets_lengths.train=0.5",
+                "++datamodule.subsets_lengths.val=0.5"
+            ]
         }
     ]
 }

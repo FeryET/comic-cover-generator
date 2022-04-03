@@ -6,6 +6,7 @@ from typing import Any, Dict, Tuple
 import torch
 from torch import nn
 from torch.nn import functional as F
+from transformers import BatchEncoding
 
 from comic_cover_generator.ml.model.base import (
     EqualLinear,
@@ -40,13 +41,8 @@ class Generator(nn.Module, Freezeable):
         w_dim: int = 256,
         conv_channels: Tuple[int, ...] = (512, 256, 128, 64, 32),
         output_shape: Tuple[int, int] = (64, 64),
-        embed_dim: int = 64,
-        n_heads: int = 8,
-        dim_feedforward: int = 128,
-        num_layers: int = 4,
-        max_len: int = 100,
-        padding_idx: int = 0,
         mapping_network_lr_coef: float = 1e-2,
+        transformer_model: str = "prajjwal1/bert-tiny",
     ) -> None:
         """Initialize the generator.
 
@@ -54,12 +50,12 @@ class Generator(nn.Module, Freezeable):
             latent_dim (int, optional): Defaults to 256.
             w_dim (int, optional): Defaults to 256.
             conv_channels (Tuple[int, ...], optional): Defaults to (512, 256, 128, 64, 32).
-            char_cnn_channels (Tuple[int, ...], optional): Defaults to (256, 256, 256).
             output_shape (Tuple[int, int], optional): Defaults to (64, 64).
             mapping_network_lr_coef (float, optional): Defaults to 1e-2.
+            transformer_model (str): the transfomer model used in this generator.
 
         Raises:
-            ValueError: _description_
+            ValueError:
         """
         super().__init__()
 
@@ -73,8 +69,6 @@ class Generator(nn.Module, Freezeable):
                 " value in channels corresponds to a block which includes an 2x"
                 " upsampler."
             )
-        if (embed_dim * n_heads) % 16 != 0:
-            raise ValueError("embed_dim * n_heads should be divisible by 16.")
 
         # mapping network properties
         self.latent_dim = latent_dim
@@ -84,25 +78,17 @@ class Generator(nn.Module, Freezeable):
         self.mapping_network_lr_coef = mapping_network_lr_coef
 
         self.conv_channels = list(conv_channels)
-        self.embed_dim = embed_dim
 
-        self.title_embed = nn.Sequential(
-            Seq2Vec(
-                embed_dim=embed_dim,
-                n_heads=n_heads,
-                dim_feedforward=dim_feedforward,
-                num_layers=num_layers,
-                max_len=max_len,
-                padding_idx=padding_idx,
-            ),
-            nn.Unflatten(1, unflattened_size=((self.embed_dim // 16, 4, 4))),
+        self.seq2vec = Seq2Vec(transformer_model=transformer_model)
+
+        self.text2image_embedder = nn.Sequential(
+            nn.Unflatten(-1, (self.seq2vec.hidden_size // 16, 4, 4)),
             nn.Conv2d(
-                self.embed_dim // 16,
+                self.seq2vec.hidden_size // 16,
                 conv_channels[0],
                 kernel_size=3,
-                padding=1,
                 stride=1,
-                bias=False,
+                padding=1,
             ),
             nn.InstanceNorm2d(conv_channels[0], affine=True),
             nn.LeakyReLU(0.1),
@@ -125,7 +111,7 @@ class Generator(nn.Module, Freezeable):
     def forward(
         self,
         z: torch.Tensor,
-        title_seq: torch.Tensor,
+        title_seq: BatchEncoding,
     ) -> torch.Tensor:
         """Map a noise and a sequence to an image.
 
@@ -138,8 +124,10 @@ class Generator(nn.Module, Freezeable):
         """
         # enriching the latent vector
         w = self.latent_mapper(z)
-        # adding title embedding to the constant input
-        x = self.title_embed(title_seq)
+        # embed the sequence to a vector
+        x = self.seq2vec(title_seq)
+        # create an image representation of the input vector
+        x = self.text2image_embedder(x)
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, rgb)
@@ -156,6 +144,7 @@ class Generator(nn.Module, Freezeable):
         """Unfreeze the generator model."""
         for p in self.parameters():
             p.requires_grad = True
+        self.seq2vec.unfreeze()
         return self
 
     def get_optimizer_parameters(self, lr: float) -> Tuple[Dict[str, Any]]:
@@ -169,12 +158,13 @@ class Generator(nn.Module, Freezeable):
         """
         return [
             {
-                "params": list(self.latent_mapper.parameters()),
+                "params": list(self.latent_mapper.parameters())
+                + list(self.seq2vec.parameters()),
                 "lr": lr * self.mapping_network_lr_coef,
             },
             {
                 "params": list(self.features.parameters())
-                + list(self.title_embed.parameters()),
+                + list(self.text2image_embedder.parameters()),
                 "lr": lr,
             },
         ]

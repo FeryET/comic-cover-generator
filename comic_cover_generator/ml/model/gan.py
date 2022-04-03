@@ -1,11 +1,12 @@
 """Model module."""
 from collections import OrderedDict
-from typing import Any, Dict, List, Sequence, Tuple, Type
+from typing import Any, Dict, List, Tuple, Type
 
 import pytorch_lightning as pl
 import torch
 import torchvision
 from torchmetrics.image.fid import FrechetInceptionDistance
+from transformers import BatchEncoding
 
 from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.model import Critic, Generator
@@ -149,16 +150,28 @@ class GAN(pl.LightningModule):
             "frequency": g_frequency,
         }, {"optimizer": c_opt, "frequency": c_frequency}
 
+    def on_fit_start(self) -> None:
+        """Freeze the required layers.
+
+        Returns:
+            None:
+        """
+        self.generator.freeze()
+        self.critic.freeze()
+        self.generator.unfreeze()
+        self.critic.unfreeze()
+        return super().on_fit_start()
+
     def forward(
         self,
         z: torch.Tensor,
-        seq: Sequence[torch.Tensor],
+        seq: BatchEncoding,
     ) -> torch.Tensor:
         """Forward calls only the generator.
 
         Args:
             z (torch.Tensor): Latent noise input.
-            seq (Sequence[torch.Tensor]): sequence input.
+            seq (BatchEncoding): sequence input.
 
         Returns:
             torch.Tensor: generated image.
@@ -170,15 +183,7 @@ class GAN(pl.LightningModule):
     ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor]]:
 
         reals = batch["image"]
-        seq = [x.to(reals.device) for x in batch["title_seq"]]
-
-        # sorting seq and reals
-        sorted_indices = (
-            torch.tensor([s.size(0) for s in seq]).argsort(descending=True).tolist()
-        )
-        seq = [seq[idx] for idx in sorted_indices]
-        reals = reals[sorted_indices, ...]
-
+        seq = batch["title_seq"]
         # sample noise from normal distribution
         z = torch.empty(
             reals.size(0),
@@ -289,14 +294,17 @@ class GAN(pl.LightningModule):
 
         if batch_idx == 0:
             if self.current_epoch == 0:
-                self.validation_z = z[:16]
-                self.validation_seq = seq[:16]
-                sample_imgs = fakes[:16]
+                self.validation_z = z
+                self.validation_seq = seq
+                sample_imgs = fakes
             else:
-                sample_imgs = self(self.validation_z, self.validation_seq)
+                sample_imgs = self.generator(self.validation_z, self.validation_seq)
             # log sampled images
             grid = torchvision.utils.make_grid(
-                sample_imgs, nrow=4, value_range=(-1, 1), normalize=True
+                sample_imgs,
+                nrow=min(self.validation_z.size(0), 8),
+                value_range=(-1, 1),
+                normalize=True,
             )
 
             self.logger.experiment.add_image(

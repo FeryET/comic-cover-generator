@@ -4,14 +4,13 @@ subsets_lengths:
   val: 0.001
 random_seed: 42
 batch_size: 1
-dataset:
-  _target_: "${get_cls: comic_cover_generator.ml.dataset.CoverDataset}"
+max_seq_length: 20
+dataset_params:
   metadata_csv: "${hydra:runtime.cwd}/data/dev_subset/sampled_dataset_seed_42_population_0.001.csv"
   images_folder: "${hydra:runtime.cwd}/data/dev_subset/image/"
   preload_images: True,
   preload_path: "${hydra:runtime.cwd}/cache/"
   image_size: [92, 64]
-  max_title_seq_length: 10
   image_transforms:
     _target_: torchvision.transforms.Compose
     transforms:
