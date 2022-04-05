@@ -106,6 +106,9 @@ class GAN(pl.LightningModule):
 
         self.G_OPT_INDEX, self.C_OPT_INDEX = None, None
 
+        self.validation_z = None
+        self.validation_seq = None
+
     def configure_optimizers(self) -> Dict[str, Any]:
         """Configure the optimizers of the model.
 
@@ -293,7 +296,9 @@ class GAN(pl.LightningModule):
         )
 
         if batch_idx == 0:
-            if self.current_epoch == 0:
+            if self.current_epoch == 0 or any(
+                [item is None for item in (self.validation_z, self.validation_seq)]
+            ):
                 self.validation_z = z
                 self.validation_seq = seq
                 sample_imgs = fakes
