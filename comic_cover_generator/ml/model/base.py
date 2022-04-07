@@ -4,11 +4,9 @@ import math
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-from torch.nn.utils.rnn import PackedSequence, _packed_sequence_init
-from transformers import AutoConfig, AutoModel, BatchEncoding, BertConfig
 
 from comic_cover_generator.ml.constants import Constants
-from comic_cover_generator.typing import Protocol, TypedDict
+from comic_cover_generator.typing import Protocol
 
 
 class Freezeable(Protocol):
@@ -47,7 +45,7 @@ class EqualLinear(nn.Linear):
         self.register_parameter(
             "scale_w",
             nn.Parameter(
-                torch.as_tensor([1.0 / math.sqrt(in_features)]), requires_grad=True
+                torch.as_tensor([math.sqrt(2 / in_features)]), requires_grad=True
             ),
         )
         self.weight.data.normal_()
@@ -116,7 +114,7 @@ class EqualConv2d(nn.Module):
             device=device,
             dtype=dtype,
         )
-        self._conv.weight.data.normal_()
+        self._conv.weight.data.normal_(0, 1)
 
         self.register_buffer(
             "scale_w",
@@ -126,10 +124,6 @@ class EqualConv2d(nn.Module):
         if bias is not False:
             self._bias = nn.Parameter(
                 data=torch.zeros(out_channels), requires_grad=True
-            )
-            self.register_buffer(
-                "scale_b",
-                torch.Tensor([math.sqrt(2 / out_channels)]),
             )
         else:
             self._bias = None
@@ -170,134 +164,6 @@ class EqualConv2d(nn.Module):
             self._conv.dilation,
             self._conv.groups,
         )
-
-
-class PackSequenceEmbedding(nn.Embedding):
-    """An embedding layer which accepts packed sequences as input."""
-
-    def forward(self, packed_ids: PackedSequence) -> PackedSequence:
-        """Map a packed sequence to an embeded packed sequence.
-
-        Args:
-            packed_ids (PackedSequence): packed id sequence.
-
-        Returns:
-            PackedSequence: Embedded packed sequence.
-        """
-        embeds = super().forward(packed_ids.data.long())
-        return _packed_sequence_init(
-            embeds,
-            packed_ids.batch_sizes,
-            packed_ids.sorted_indices,
-            packed_ids.unsorted_indices,
-        ).to(embeds.device)
-
-
-class PositionalEncoding(nn.Module):
-    """Positional Encoding Layer similar to Attention is All You Need."""
-
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
-        """Initializes a positional encoding layer.
-
-        Args:
-            d_model (int): embedding dimension.
-            dropout (float, optional): Defaults to 0.1.
-            max_len (int, optional):  Defaults to 100.
-        """
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
-        )
-        pe = torch.zeros(1, max_len, d_model)
-        pe[0, :, 0::2] = torch.sin(position * div_term)
-        pe[0, :, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pe", pe)
-
-    def forward(self, x: Tensor) -> Tensor:
-        """Apply positional encoding on input.
-
-        Args:
-            x: Tensor, shape [batch_size, seq, embedding_dim]
-        """
-        x = x + self.pe[:, x.size(1)]
-        return self.dropout(x)
-
-
-class Seq2VecParams(TypedDict):
-    """Parameters of Seq2Vec model."""
-
-    transformer_model: str
-
-
-class Seq2Vec(nn.Module, Freezeable):
-    """A layer which maps a sequence of varying length to vectors."""
-
-    def __init__(self, transformer_model: str) -> None:
-        """Initialize a seq2vec instance.
-
-        Args:
-            transformer_model (str):
-            max_length (int):
-
-        Returns:
-            None:
-        """
-        super().__init__()
-
-        self.transformer = AutoModel.from_pretrained(
-            transformer_model, cache_dir=Constants.cache_dir
-        )
-        self.transformer.train()
-        self.transformer_config: BertConfig = AutoConfig.from_pretrained(
-            transformer_model, cache_dir=Constants.cache_dir
-        )
-
-        self.hidden_size = self.transformer_config.hidden_size
-
-        if self.transformer_config.model_type == "bert":
-            self.transformer.pooler.activation = nn.LeakyReLU(negative_slope=0.1)
-        else:
-            self.pooler = nn.Sequential(
-                nn.Linear(self.hidden_size, self.hidden_size, bias=True),
-                nn.LeakyReLU(negative_slope=0.1),
-            )
-
-    def forward(self, seq: BatchEncoding) -> Tensor:
-        """Map sequence to vector.
-
-        Args:
-            seq (BatchEncoding):
-
-        Returns:
-            Tensor:
-        """
-        x = self.transformer(**seq)
-        if "pooler_output" in x:
-            x = x.pooler_output
-        else:
-            x = self.pooler(x.last_hidden_state[:, 0])
-        return x
-
-    def freeze(self):
-        """Freeze generator layers."""
-        for p in self.parameters():
-            p.requires_grad = False
-
-    def unfreeze(self):
-        """Unfreeze generator layers.
-
-        Raises:
-            TypeError:
-        """
-        self.freeze()
-        if self.transformer_config.model_type == "bert":
-            for p in self.transformer.pooler.parameters():
-                p.requires_grad = True
-        else:
-            raise TypeError("Currently only bert models are supported.")
 
 
 class ModulatedConv2D(nn.Module):

@@ -8,12 +8,8 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import BatchEncoding
 
-from comic_cover_generator.ml.model.base import (
-    EqualLinear,
-    Freezeable,
-    ModulatedConv2D,
-    Seq2Vec,
-)
+from comic_cover_generator.ml.model.base import EqualLinear, Freezeable, ModulatedConv2D
+from comic_cover_generator.ml.model.seq2vec import Seq2Vec
 from comic_cover_generator.typing import TypedDict
 
 
@@ -79,30 +75,24 @@ class Generator(nn.Module, Freezeable):
 
         self.conv_channels = list(conv_channels)
 
-        self.seq2vec = Seq2Vec(transformer_model=transformer_model)
-
-        self.text2image_embedder = nn.Sequential(
-            nn.Unflatten(-1, (self.seq2vec.hidden_size // 16, 4, 4)),
-            nn.Conv2d(
-                self.seq2vec.hidden_size // 16,
-                conv_channels[0],
-                kernel_size=3,
-                stride=1,
-                padding=1,
+        self.seq2vec = nn.Sequential(
+            Seq2Vec(
+                transformer_model=transformer_model,
+                output_dim=self.conv_channels[0] * 4 * 4,
             ),
-            nn.InstanceNorm2d(conv_channels[0], affine=True),
-            nn.LeakyReLU(0.1),
+            nn.Unflatten(dim=-1, unflattened_size=(self.conv_channels[0], 4, 4)),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
-        self.features = nn.ModuleList()
+        self.features = nn.ModuleList([])
         for in_ch, out_ch in zip(self.conv_channels, self.conv_channels[1:]):
             self.features.append(
                 GeneratorBlock(
                     in_channels=in_ch,
                     out_channels=out_ch,
                     w_dim=self.w_dim,
+                    upsample=True,
                 ),
             )
 
@@ -126,8 +116,6 @@ class Generator(nn.Module, Freezeable):
         w = self.latent_mapper(z)
         # embed the sequence to a vector
         x = self.seq2vec(title_seq)
-        # create an image representation of the input vector
-        x = self.text2image_embedder(x)
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, rgb)
@@ -142,9 +130,9 @@ class Generator(nn.Module, Freezeable):
 
     def unfreeze(self):
         """Unfreeze the generator model."""
-        for p in self.parameters():
+        for p in nn.ModuleList([self.latent_mapper, self.features]).parameters():
             p.requires_grad = True
-        self.seq2vec.unfreeze()
+        self.seq2vec[0].unfreeze()
         return self
 
     def get_optimizer_parameters(self, lr: float) -> Tuple[Dict[str, Any]]:
@@ -163,8 +151,7 @@ class Generator(nn.Module, Freezeable):
                 "lr": lr * self.mapping_network_lr_coef,
             },
             {
-                "params": list(self.features.parameters())
-                + list(self.text2image_embedder.parameters()),
+                "params": list(self.features.parameters()),
                 "lr": lr,
             },
         ]
@@ -195,13 +182,17 @@ class LatentMapper(nn.Module):
         super().__init__()
 
         self.mapper = nn.Sequential(
-            EqualLinear(latent_dim, w_dim),
-            nn.LeakyReLU(negative_slope=0.1),
-            EqualLinear(w_dim, w_dim),
-            nn.LeakyReLU(negative_slope=0.1),
-            EqualLinear(w_dim, w_dim),
-            nn.LeakyReLU(negative_slope=0.1),
+            nn.Sequential(
+                EqualLinear(latent_dim, w_dim), nn.LeakyReLU(negative_slope=0.1)
+            ),
         )
+        for _ in range(7):
+            self.mapper.append(
+                nn.Sequential(
+                    EqualLinear(w_dim, w_dim),
+                    nn.LeakyReLU(negative_slope=0.1),
+                )
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Map x to w plane.
@@ -226,6 +217,7 @@ class GeneratorBlock(nn.Module):
         in_channels: int,
         out_channels: int,
         w_dim: int,
+        upsample: bool,
     ) -> None:
         """Intiailizes a generator block.
 
@@ -233,11 +225,13 @@ class GeneratorBlock(nn.Module):
             in_channels (int):
             out_channels (int):
             w_dim (int):
+            upsample (bool):
 
         Returns:
             None:
         """
         super().__init__()
+
         self.style1 = StyleBlock(
             w_dim,
             in_channels=in_channels,
@@ -248,15 +242,17 @@ class GeneratorBlock(nn.Module):
         )
         self.style2 = StyleBlock(
             w_dim,
-            upsample=True,
+            upsample=upsample,
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=3,
             padding=1,
             stride=1,
         )
-
-        self.upsample = nn.Upsample(scale_factor=2, mode="bilinear")
+        if upsample:
+            self.skip_upsample = nn.Upsample(scale_factor=2, mode="bilinear")
+        else:
+            self.skip_upsample = nn.Identity()
 
         self.to_rgb = nn.Conv2d(out_channels, 3, 1, 1, 0)
 
@@ -280,11 +276,11 @@ class GeneratorBlock(nn.Module):
         """
         x = self.style1(x, w)
         x = self.style2(x, w)
-        if rgb is not None:
-            rgb = self.to_rgb(x) + self.upsample(rgb)
-            rgb = rgb * self.residual_scaler
+        x_rgb = self.to_rgb(x)
+        if rgb is None:
+            rgb = x_rgb
         else:
-            rgb = self.to_rgb(x)
+            rgb = self.skip_upsample(rgb) + x_rgb
         return GeneratorBlock.GeneratorResult(x=x, rgb=rgb)
 
 
@@ -336,7 +332,7 @@ class StyleBlock(nn.Module):
         self.activation = nn.LeakyReLU(negative_slope=0.1)
 
         self.upsample = (
-            nn.Upsample(scale_factor=2, mode="bilinear") if upsample else None
+            nn.Upsample(scale_factor=2, mode="bilinear") if upsample else nn.Identity()
         )
 
     def forward(self, x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
@@ -349,8 +345,7 @@ class StyleBlock(nn.Module):
         Returns:
             torch.Tensor: torch.Tensor
         """
-        if self.upsample is not None:
-            x = self.upsample(x)
+        x = self.upsample(x)
 
         scores = self.A(w)
         # add conv and add bias
