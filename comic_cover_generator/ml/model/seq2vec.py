@@ -38,7 +38,7 @@ class Seq2Vec(nn.Module, Freezeable):
         )
         self.transformer.classifier = nn.Sequential(
             EqualLinear(self.config.hidden_size, output_dim, bias=True),
-            nn.LeakyReLU(0.1),
+            nn.LeakyReLU(0.2),
         )
         # freeze and unfreeze the layers to make sure the trainable parameters
         # are shown correct in the lightning trainer

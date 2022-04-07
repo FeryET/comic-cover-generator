@@ -10,7 +10,7 @@ from comic_cover_generator.ml.model import Generator
 class MockedSeq2Vec(torch.nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__()
-        self.hidden_size = 128
+        self.hidden_size = 8
 
     def forward(self, seq):
         return torch.ones(len(seq["input_ids"]), self.hidden_size)

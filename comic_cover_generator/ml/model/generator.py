@@ -78,21 +78,35 @@ class Generator(nn.Module, Freezeable):
         self.seq2vec = nn.Sequential(
             Seq2Vec(
                 transformer_model=transformer_model,
-                output_dim=self.conv_channels[0] * 4 * 4,
+                output_dim=self.conv_channels[0],
             ),
-            nn.Unflatten(dim=-1, unflattened_size=(self.conv_channels[0], 4, 4)),
+            nn.Unflatten(dim=-1, unflattened_size=(self.conv_channels[0], 1, 1)),
+            nn.Upsample(scale_factor=4),
+            nn.Conv2d(
+                in_channels=self.conv_channels[0],
+                out_channels=self.conv_channels[0],
+                groups=self.conv_channels[0],
+                kernel_size=3,
+                stride=1,
+                padding=1,
+            ),
+            nn.InstanceNorm2d(self.conv_channels[0]),
+            nn.LeakyReLU(negative_slope=0.2),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
-        self.features = nn.ModuleList([])
-        for in_ch, out_ch in zip(self.conv_channels, self.conv_channels[1:]):
+        self.features = nn.ModuleList()
+        for generator_block_index, (in_ch, out_ch) in enumerate(
+            zip(self.conv_channels, self.conv_channels[1:])
+        ):
             self.features.append(
                 GeneratorBlock(
                     in_channels=in_ch,
                     out_channels=out_ch,
                     w_dim=self.w_dim,
                     upsample=True,
+                    add_noise=False if generator_block_index < 1 else True,
                 ),
             )
 
@@ -183,14 +197,14 @@ class LatentMapper(nn.Module):
 
         self.mapper = nn.Sequential(
             nn.Sequential(
-                EqualLinear(latent_dim, w_dim), nn.LeakyReLU(negative_slope=0.1)
+                EqualLinear(latent_dim, w_dim), nn.LeakyReLU(negative_slope=0.2)
             ),
         )
         for _ in range(7):
             self.mapper.append(
                 nn.Sequential(
                     EqualLinear(w_dim, w_dim),
-                    nn.LeakyReLU(negative_slope=0.1),
+                    nn.LeakyReLU(negative_slope=0.2),
                 )
             )
 
@@ -218,6 +232,7 @@ class GeneratorBlock(nn.Module):
         out_channels: int,
         w_dim: int,
         upsample: bool,
+        add_noise: bool,
     ) -> None:
         """Intiailizes a generator block.
 
@@ -226,6 +241,7 @@ class GeneratorBlock(nn.Module):
             out_channels (int):
             w_dim (int):
             upsample (bool):
+            add_noise (bool):
 
         Returns:
             None:
@@ -239,15 +255,18 @@ class GeneratorBlock(nn.Module):
             kernel_size=3,
             padding=1,
             stride=1,
+            add_noise=add_noise,
+            upsample=False,
         )
         self.style2 = StyleBlock(
             w_dim,
-            upsample=upsample,
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=3,
             padding=1,
             stride=1,
+            add_noise=add_noise,
+            upsample=upsample,
         )
         if upsample:
             self.skip_upsample = nn.Upsample(scale_factor=2, mode="bilinear")
@@ -313,7 +332,12 @@ class StyleBlock(nn.Module):
     """Style block module."""
 
     def __init__(
-        self, w_dim: int, eps: float = None, upsample: bool = False, **conv_params
+        self,
+        w_dim: int,
+        eps: float = None,
+        upsample: bool = False,
+        add_noise: bool = False,
+        **conv_params,
     ) -> None:
         """Intiailize a generator block module.
 
@@ -322,14 +346,15 @@ class StyleBlock(nn.Module):
             output_shape (Tuple[int, int]): The dimensions of the output of the block.
             eps (float, optional): Defaults to None. (Value controlled by layer default eps.)
             upsample (bool, optional): Whether to upsample the input. Defaults to False.
+            add_noise (bool, optional): Whether to add stochastic noise to the input in this layer.
         """
         super().__init__()
 
         self.mod_conv = ModulatedConv2D(eps=eps, **conv_params)
-        self.B = AdditiveNoiseBlock()
+        self.B = AdditiveNoiseBlock() if add_noise else nn.Identity()
         self.A = EqualLinear(w_dim, conv_params["in_channels"])
 
-        self.activation = nn.LeakyReLU(negative_slope=0.1)
+        self.activation = nn.LeakyReLU(negative_slope=0.2)
 
         self.upsample = (
             nn.Upsample(scale_factor=2, mode="bilinear") if upsample else nn.Identity()

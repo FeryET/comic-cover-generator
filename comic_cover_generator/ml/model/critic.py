@@ -27,7 +27,7 @@ class CriticResidualBlock(nn.Module):
         self.conv = nn.Sequential(
             EqualConv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
             nn.InstanceNorm2d(in_channels, affine=True),
-            nn.LeakyReLU(0.1),
+            nn.LeakyReLU(0.2),
             EqualConv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
             nn.Upsample(scale_factor=0.5, mode="bilinear"),
         )
