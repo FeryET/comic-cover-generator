@@ -65,9 +65,9 @@ def compute_r1_regularization(
         torch.Tensor:
     """
     (grad_real,) = torch.autograd.grad(
-        outputs=outputs.sum(),
+        outputs=outputs,
         inputs=inputs,
-        grad_outputs=outputs.new_ones(outputs.size(0)),
+        grad_outputs=outputs.new_ones(outputs.shape),
         create_graph=True,
     )
     grad_penalty = torch.linalg.norm(grad_real.flatten(1), dim=-1).square().mean()
@@ -107,7 +107,7 @@ class PathLengthPenalty(nn.Module):
             grad_outputs=torch.ones_like(o),
             create_graph=True,
         )
-        norm = grads.square().sum(dim=2).mean(dim=1).sqrt()
+        norm = torch.linalg.norm(grads, dim=-1)
         if self.steps > 0:
             a = self.exponential_sum / (1 - self.beta.pow(self.steps))
             loss = torch.mean((norm - a) ** 2)
@@ -119,8 +119,8 @@ class PathLengthPenalty(nn.Module):
         return loss
 
 
-def _batch_index_condition(batch_idx, interval, optimizer_idx):
-    return (batch_idx + 1) % interval == optimizer_idx
+def _interval_condition(batch_idx, interval):
+    return (batch_idx // 2) % interval == interval - 1
 
 
 class NSGANTrainingStrategy:
@@ -152,9 +152,9 @@ class NSGANTrainingStrategy:
 
         # since each batch goes only to one of either of generator or discriminator
         # it's imperative to make sure that we apply these relatively
-        self.scaled_r1_regualirzation_interval = r1_regularization_interval * 2
-        self.scaled_pl_regularization_interval = pl_regularization_interval * 2
-        self.pl_start_from_iteration = pl_start_from_iteration * 2
+        self.scaled_r1_regualirzation_interval = r1_regularization_interval
+        self.scaled_pl_regularization_interval = pl_regularization_interval
+        self.pl_start_from_iteration = pl_start_from_iteration
 
         self.plp = PathLengthPenalty(path_length_beta)
         self.model: GAN = None
@@ -193,22 +193,18 @@ class NSGANTrainingStrategy:
         Returns:
             TrainingStrategy.CRITIC_LOOP_RESULT:
         """
-        if _batch_index_condition(
-            batch_idx, self.r1_regularization_interval, optimizer_idx
-        ):
+        if _interval_condition(batch_idx, self.r1_regularization_interval):
             reals.requires_grad_(True)
         reals = diff_augment(reals, self.model.augmentation_policy)
+
         # compute the normal gan loss
         fakes = self.model.generator(z, seq, stochastic_noise)
         fakes = diff_augment(fakes, self.model.augmentation_policy)
 
         logits_f = self.model.critic(fakes)
         logits_r = self.model.critic(reals)
-
         loss = critic_loss(logits_r, logits_f, eps=Constants.eps)
-        if _batch_index_condition(
-            batch_idx, self.r1_regularization_interval, optimizer_idx
-        ):
+        if _interval_condition(batch_idx, self.r1_regularization_interval):
             # compute the regularization term only
             loss = loss + (
                 compute_r1_regularization(logits_r, reals)
@@ -243,12 +239,9 @@ class NSGANTrainingStrategy:
         fakes = diff_augment(fakes, self.model.augmentation_policy)
         logits_f = self.model.critic(fakes)
         loss = generator_loss(logits_f, eps=Constants.eps)
-
         if (
             self.model.global_step > self.pl_start_from_iteration
-            and _batch_index_condition(
-                batch_idx, self.pl_regularization_interval, optimizer_idx
-            )
+            and _interval_condition(batch_idx, self.pl_regularization_interval)
         ):
             if self.plp.beta.device != fakes.device:
                 self.plp = self.plp.to(fakes.device)
