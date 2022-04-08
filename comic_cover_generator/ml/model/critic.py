@@ -1,4 +1,5 @@
 """Critic Module."""
+import math
 from typing import Tuple
 
 import torch
@@ -26,16 +27,18 @@ class CriticResidualBlock(nn.Module):
         super().__init__()
         self.conv = nn.Sequential(
             EqualConv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
-            nn.InstanceNorm2d(in_channels, affine=True),
             nn.LeakyReLU(0.2),
             EqualConv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(0.2),
             nn.Upsample(scale_factor=0.5, mode="bilinear"),
         )
 
-        self.skip = nn.Sequential(
+        self.residual = nn.Sequential(
             EqualConv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0),
             nn.Upsample(scale_factor=0.5, mode="bilinear"),
         )
+
+        self.register_buffer("residual_scaler", torch.as_tensor([1.0 / math.sqrt(2)]))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Residual block forward pass.
@@ -46,7 +49,9 @@ class CriticResidualBlock(nn.Module):
         Returns:
             torch.Tensor:
         """
-        return self.skip(x) + self.conv(x)
+        residual = self.residual(x)
+        x = self.conv(x)
+        return (x + residual) * self.residual_scaler
 
 
 class CriticParams(TypedDict):
@@ -80,8 +85,8 @@ class MinibatchStdMean(nn.Module):
         Returns:
             torch.Tensor:
         """
-        f_std = x.var(dim=0, keepdim=True).add(self.eps).sqrt().mean()
-        f_std = f_std.expand(x.size(0), 1, x.size(2), x.size(3))
+        f_std = torch.sqrt(x.var(dim=0, keepdim=True) + self.eps)
+        f_std = f_std.mean().expand(x.size(0), 1, x.size(2), x.size(3))
         return torch.cat((x, f_std), dim=1)
 
 

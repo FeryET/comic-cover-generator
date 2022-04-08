@@ -1,7 +1,6 @@
 """Generator module."""
-import math
 from collections import namedtuple
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union
 
 import torch
 from torch import nn
@@ -82,31 +81,21 @@ class Generator(nn.Module, Freezeable):
             ),
             nn.Unflatten(dim=-1, unflattened_size=(self.conv_channels[0], 1, 1)),
             nn.Upsample(scale_factor=4),
-            nn.Conv2d(
-                in_channels=self.conv_channels[0],
-                out_channels=self.conv_channels[0],
-                groups=self.conv_channels[0],
-                kernel_size=3,
-                stride=1,
-                padding=1,
-            ),
-            nn.InstanceNorm2d(self.conv_channels[0]),
-            nn.LeakyReLU(negative_slope=0.2),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
 
-        self.features = nn.ModuleList()
-        for generator_block_index, (in_ch, out_ch) in enumerate(
-            zip(self.conv_channels, self.conv_channels[1:])
-        ):
+        self.features = nn.ModuleList(
+            [GeneratorHead(conv_channels[0], conv_channels[0], self.w_dim)]
+        )
+        for in_ch, out_ch in zip(self.conv_channels, self.conv_channels[1:]):
             self.features.append(
                 GeneratorBlock(
                     in_channels=in_ch,
                     out_channels=out_ch,
                     w_dim=self.w_dim,
                     upsample=True,
-                    add_noise=False if generator_block_index < 1 else True,
+                    add_noise=True,
                 ),
             )
 
@@ -116,25 +105,34 @@ class Generator(nn.Module, Freezeable):
         self,
         z: torch.Tensor,
         title_seq: BatchEncoding,
-    ) -> torch.Tensor:
+        stochastic_noise: torch.Tensor,
+        return_w: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Map a noise and a sequence to an image.
 
         Args:
             z (torch.Tensor): Latent noise input.
             title_seq (torch.Tensor): Title sequence.
+            stochastic_noise (torch.Tensor): The stochastic input noise.
+            return_w (bool, optional): Whether to return w or not.
 
         Returns:
-            torch.Tensor:
+            Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]: If return_w is False, only returns the rgb output, else returns rgb and w in the same order as mentioned as a tuple.
         """
+        if stochastic_noise.ndim == 3:
+            stochastic_noise = stochastic_noise.unsqueeze(1)
         # enriching the latent vector
         w = self.latent_mapper(z)
         # embed the sequence to a vector
         x = self.seq2vec(title_seq)
         rgb = None
         for f in self.features:
-            x, rgb = f(x, w, rgb)
+            x, rgb = f(x, w, stochastic_noise, rgb)
         rgb = self.rescale_rgb(rgb)
-        return rgb
+        if return_w:
+            return rgb, w
+        else:
+            return rgb
 
     def freeze(self):
         """Freeze the generator model."""
@@ -221,10 +219,67 @@ class LatentMapper(nn.Module):
         return self.mapper(x)
 
 
+GeneratorBlockResult = namedtuple("GeneratorResult", "x,rgb")
+
+
+class GeneratorHead(nn.Module):
+    """Generator head block for translation of text represenation into image."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        w_dim: int,
+    ) -> None:
+        """Initialize a GeneratorHead object.
+
+        Args:
+            in_channels (int):
+            out_channels (int):
+            w_dim (int):
+
+        Returns:
+            None:
+        """
+        super().__init__()
+        self.style = StyleBlock(
+            w_dim=w_dim,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=3,
+            padding=1,
+            add_noise=False,
+            demod=True,
+        )
+        self.to_rgb = StyleBlock(
+            w_dim=w_dim,
+            in_channels=out_channels,
+            out_channels=3,
+            kernel_size=1,
+            padding=0,
+            add_noise=False,
+            demod=False,
+        )
+
+    def forward(
+        self, x: torch.Tensor, w: torch.Tensor, *args, **kwargs
+    ) -> GeneratorBlockResult:
+        """Get the base generated 4D input.
+
+        Args:
+            x (torch.Tensor): 4D text representation.
+            w (torch.Tensor): 2D latent representation.
+
+        Returns:
+            GeneratorBlockResult:
+        """
+        x = self.style(x, w, None)
+        rgb = self.to_rgb(x, w, None)
+        return x, rgb
+
+
 class GeneratorBlock(nn.Module):
     """Generator block module."""
-
-    GeneratorResult = namedtuple("GeneratorResult", "x,rgb")
 
     def __init__(
         self,
@@ -237,11 +292,12 @@ class GeneratorBlock(nn.Module):
         """Intiailizes a generator block.
 
         Args:
-            in_channels (int):
-            out_channels (int):
-            w_dim (int):
-            upsample (bool):
-            add_noise (bool):
+            n_layers: number of style layers.
+            in_channels (int): input channels for each style layer.
+            out_channels (int): output channels for each style layer.
+            w_dim (int): The input dimension of w.
+            upsample (bool): Whether to upsample or not.
+            add_noise (bool): Whether to add noise or not.
 
         Returns:
             None:
@@ -249,40 +305,46 @@ class GeneratorBlock(nn.Module):
         super().__init__()
 
         self.style1 = StyleBlock(
-            w_dim,
+            w_dim=w_dim,
             in_channels=in_channels,
             out_channels=in_channels,
             kernel_size=3,
             padding=1,
-            stride=1,
             add_noise=add_noise,
-            upsample=False,
+            demod=True,
         )
         self.style2 = StyleBlock(
-            w_dim,
+            w_dim=w_dim,
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=3,
             padding=1,
-            stride=1,
             add_noise=add_noise,
-            upsample=upsample,
+            demod=True,
         )
+
         if upsample:
-            self.skip_upsample = nn.Upsample(scale_factor=2, mode="bilinear")
+            self.upsample = nn.Upsample(scale_factor=2, mode="bilinear")
         else:
-            self.skip_upsample = nn.Identity()
+            self.upsample = nn.Identity()
 
-        self.to_rgb = nn.Conv2d(out_channels, 3, 1, 1, 0)
-
-        self.register_buffer("residual_scaler", torch.as_tensor([math.sqrt(0.5)]))
+        self.to_rgb = StyleBlock(
+            w_dim=w_dim,
+            in_channels=out_channels,
+            out_channels=3,
+            kernel_size=1,
+            padding=0,
+            add_noise=False,
+            demod=False,
+        )
 
     def forward(
         self,
         x: torch.Tensor,
         w: torch.Tensor,
+        stochastic_noise: torch.Tensor,
         rgb: torch.Tensor = None,
-    ) -> GeneratorResult:
+    ) -> GeneratorBlockResult:
         """Forward call of generator block.
 
         Args:
@@ -291,16 +353,15 @@ class GeneratorBlock(nn.Module):
             rgb (torch.Tensor, optional): residual input. Defaults to None.
 
         Returns:
-            GeneratorResult:
+            GeneratorBlockResult:
         """
-        x = self.style1(x, w)
-        x = self.style2(x, w)
-        x_rgb = self.to_rgb(x)
-        if rgb is None:
-            rgb = x_rgb
-        else:
-            rgb = self.skip_upsample(rgb) + x_rgb
-        return GeneratorBlock.GeneratorResult(x=x, rgb=rgb)
+        x = self.upsample(x)
+        x = self.style1(x, w, stochastic_noise)
+        x = self.style2(x, w, stochastic_noise)
+        x_rgb = self.to_rgb(x, w, stochastic_noise)
+        rgb = self.upsample(rgb)
+        rgb = rgb + x_rgb
+        return GeneratorBlockResult(x=x, rgb=rgb)
 
 
 class AdditiveNoiseBlock(nn.Module):
@@ -309,22 +370,39 @@ class AdditiveNoiseBlock(nn.Module):
     def __init__(self) -> None:
         """Initialize the additive noise module."""
         super().__init__()
-        self.coef = nn.Parameter(torch.rand(1), requires_grad=True)
+        self.scale_noise = nn.Parameter(torch.zeros(1), requires_grad=True)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, stochastic_noise: torch.Tensor) -> torch.Tensor:
         """Compute a weighted view of the center cropped noise.
 
         Args:
             x (torch.Tensor): 4D feature maps. [B, C, H, W]
+            stochastic_noise: 3D noise input with shape [B, 1, FULL_H, FULL_W].
 
         Returns:
             torch.Tensor: Cropped noise.
         """
-        noise = torch.empty(
-            x.size(0), 1, x.size(2), x.size(3), dtype=x.dtype, device=x.device
-        ).normal_()
-        noise = noise * self.coef
+        if stochastic_noise.size(1) != 1 and stochastic_noise.ndim != 4:
+            raise RuntimeError("Stochastic noise should be 4D and have only 1 channel.")
+        noise = stochastic_noise[..., : x.size(2), : x.size(3)]
+        noise = noise * self.scale_noise[None, :, None, None]
         x = noise + x
+        return x
+
+
+class DoNotAddNoise(nn.Module):
+    """A dummy layer to indicate whether noise should be added or not."""
+
+    def forward(self, x: torch.Tensor, stochastic_noise: torch.Tensor) -> torch.Tensor:
+        """Return the image and do nothing with the noise.
+
+        Args:
+            x (torch.Tensor):
+            stochastic_noise (torch.Tensor):
+
+        Returns:
+            torch.Tensor: The input image.
+        """
         return x
 
 
@@ -333,49 +411,60 @@ class StyleBlock(nn.Module):
 
     def __init__(
         self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        padding: int,
         w_dim: int,
         eps: float = None,
-        upsample: bool = False,
         add_noise: bool = False,
-        **conv_params,
+        demod: bool = True,
     ) -> None:
         """Intiailize a generator block module.
 
         Args:
+            in_channels (int): The number of input channels.
+            out_channels (int): The number of output channels.
+            kernel_size (int): The kernel size used in convolution.
+            padding (int): The padding used in the convolution.
             w_dim (int): Fine grained latent dimension.
-            output_shape (Tuple[int, int]): The dimensions of the output of the block.
             eps (float, optional): Defaults to None. (Value controlled by layer default eps.)
-            upsample (bool, optional): Whether to upsample the input. Defaults to False.
             add_noise (bool, optional): Whether to add stochastic noise to the input in this layer.
+            demod (bool, optional): Whether to apply demodulation or not in the modulated convolution.
         """
         super().__init__()
 
-        self.mod_conv = ModulatedConv2D(eps=eps, **conv_params)
-        self.B = AdditiveNoiseBlock() if add_noise else nn.Identity()
-        self.A = EqualLinear(w_dim, conv_params["in_channels"])
+        self.mod_conv = ModulatedConv2D(
+            in_channels, out_channels, kernel_size, padding, eps=eps, demod=demod
+        )
+        self.bias = nn.Parameter(torch.zeros(out_channels), requires_grad=True)
+        self.B = AdditiveNoiseBlock() if add_noise else DoNotAddNoise()
+        self.A = EqualLinear(w_dim, in_channels, bias=1)
 
         self.activation = nn.LeakyReLU(negative_slope=0.2)
 
-        self.upsample = (
-            nn.Upsample(scale_factor=2, mode="bilinear") if upsample else nn.Identity()
-        )
-
-    def forward(self, x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, w: torch.Tensor, stochastic_noise: torch.Tensor = None
+    ) -> torch.Tensor:
         """Apply a modulated block for the generator.
 
         Args:
             x (torch.Tensor): Input 4D tensor.
             w (torch.Tensor): Input fine-grained latent 2D tensor.
+            stochastic_noise (torch.Tensor): The 4D stochastic input noise with shape [B, 1, H, W].
 
         Returns:
             torch.Tensor: torch.Tensor
         """
-        x = self.upsample(x)
-
+        if stochastic_noise is None and not isinstance(self.B, DoNotAddNoise):
+            raise RuntimeError(
+                "Cannot input None as stochastic noise when 'add_noise' is set to True"
+                " for the style block."
+            )
         scores = self.A(w)
         # add conv and add bias
         x = self.mod_conv(x, scores)
-        # add noise
-        x = self.B(x)
+        # add noise and bias
+        x = self.B(x, stochastic_noise) + self.bias.reshape(1, -1, 1, 1)
 
         return self.activation(x)

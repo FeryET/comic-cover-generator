@@ -29,7 +29,11 @@ def gen():
 
 @pytest.fixture
 def batch():
-    return torch.rand(2, 16), {"input_ids": [[1, 2, 3, 1, 0], [1, 0, 0, 1, 0]]}
+    return (
+        torch.rand(2, 16),
+        {"input_ids": [[1, 2, 3, 1, 0], [1, 0, 0, 1, 0]]},
+        torch.rand(2, 16, 16),
+    )
 
 
 @torch.no_grad()

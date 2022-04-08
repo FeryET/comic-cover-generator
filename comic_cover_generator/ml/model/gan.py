@@ -108,6 +108,7 @@ class GAN(pl.LightningModule):
 
         self.validation_z = None
         self.validation_seq = None
+        self.validation_stochastic_noise = None
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Configure the optimizers of the model.
@@ -166,20 +167,19 @@ class GAN(pl.LightningModule):
         return super().on_fit_start()
 
     def forward(
-        self,
-        z: torch.Tensor,
-        seq: BatchEncoding,
+        self, z: torch.Tensor, seq: BatchEncoding, stochastic_noise: torch.Tensor
     ) -> torch.Tensor:
         """Forward calls only the generator.
 
         Args:
             z (torch.Tensor): Latent noise input.
             seq (BatchEncoding): sequence input.
+            stochastic noise (torch.Tensor): Input 3D noise with shape [B, H, W].
 
         Returns:
             torch.Tensor: generated image.
         """
-        return self.generator(z, seq)
+        return self.generator(z, seq, stochastic_noise)
 
     def _extract_inputs(
         self, batch: Dict[str, Any]
@@ -195,7 +195,14 @@ class GAN(pl.LightningModule):
             device=reals.device,
         ).normal_(mean=0, std=1)
 
-        return reals, z, seq
+        stochastic_noise = torch.empty(
+            reals.size(0),
+            *self.generator.output_shape,
+            dtype=reals.dtype,
+            device=reals.device,
+        ).normal_(mean=0, std=1)
+
+        return reals, seq, z, stochastic_noise
 
     def training_step(
         self, batch: CoverDatasetBatch, batch_idx: int, optimizer_idx: int
@@ -210,7 +217,7 @@ class GAN(pl.LightningModule):
         Returns:
             Dict[str, Any]: The output of the training step.
         """
-        reals, z, seq = self._extract_inputs(batch)
+        reals, seq, z, stochastic_noise = self._extract_inputs(batch)
         B = reals.size(0)
         # train generator
         if optimizer_idx == 0:
@@ -219,7 +226,9 @@ class GAN(pl.LightningModule):
             self.generator.unfreeze()
             self.generator.train()
 
-            output = self.training_strategy.generator_loop(seq, z, batch_idx)
+            output = self.training_strategy.generator_loop(
+                seq, z, stochastic_noise, batch_idx, optimizer_idx
+            )
             fakes = output["fakes"]
 
             self.train_fid.update(self.generator.to_uint8(fakes.detach()), real=False)
@@ -233,7 +242,9 @@ class GAN(pl.LightningModule):
             self.generator.freeze()
             self.generator.eval()
 
-            output = self.training_strategy.critic_loop(reals, seq, z, batch_idx)
+            output = self.training_strategy.critic_loop(
+                reals, seq, z, stochastic_noise, batch_idx, optimizer_idx
+            )
             k = "critic"
 
         self.log(
@@ -274,10 +285,12 @@ class GAN(pl.LightningModule):
         Returns:
             Dict[str, Any]:
         """
-        reals, z, seq = self._extract_inputs(batch)
+        reals, seq, z, stochastic_noise = self._extract_inputs(batch)
         B = reals.size(0)
 
-        output = self.training_strategy.validation_loop(reals, seq, z, batch_idx)
+        output = self.training_strategy.validation_loop(
+            reals, seq, z, stochastic_noise, batch_idx
+        )
 
         fakes = output["fakes"]
 
@@ -297,13 +310,25 @@ class GAN(pl.LightningModule):
 
         if batch_idx == 0:
             if self.current_epoch == 0 or any(
-                [item is None for item in (self.validation_z, self.validation_seq)]
+                [
+                    item is None
+                    for item in (
+                        self.validation_z,
+                        self.validation_seq,
+                        self.validation_stochastic_noise,
+                    )
+                ]
             ):
                 self.validation_z = z
                 self.validation_seq = seq
+                self.validation_stochastic_noise = stochastic_noise
                 sample_imgs = fakes
             else:
-                sample_imgs = self.generator(self.validation_z, self.validation_seq)
+                sample_imgs = self.generator(
+                    self.validation_z,
+                    self.validation_seq,
+                    self.validation_stochastic_noise,
+                )
             # log sampled images
             grid = torchvision.utils.make_grid(
                 sample_imgs,

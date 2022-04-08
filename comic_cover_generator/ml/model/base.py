@@ -1,6 +1,8 @@
 """Base Module."""
 import math
+from typing import Union
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
@@ -21,36 +23,57 @@ class Freezeable(Protocol):
         ...
 
 
-class EqualLinear(nn.Linear):
+class EqualizedWeight(nn.Module):
+    """Equalized learning rate weight module."""
+
+    def __init__(self, *weight_dims) -> None:
+        """Initialize an EqualizeWeight module.
+
+        Has a similar interface to torch.rand.
+        """
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty(*weight_dims), requires_grad=True)
+        self.weight.data.normal_()
+        self.register_buffer(
+            "scale", torch.as_tensor(math.sqrt(2 / np.prod(weight_dims[1:])))
+        )
+
+    def forward(self) -> torch.Tensor:
+        """Get equalized weight.
+
+        Returns:
+            torch.Tensor: equalized weight.
+        """
+        return self.weight * self.scale
+
+
+class EqualLinear(nn.Module):
     """An Equalized Linear Layer."""
 
     def __init__(
         self,
         in_features: int,
         out_features: int,
-        bias: bool = True,
-        device=None,
-        dtype=None,
+        bias: Union[bool, float] = True,
     ) -> None:
         """Intiailize an eqaulized linear.
 
         Args:
             in_features (int): Input feature dimension.
             out_features (int): Output feature dimension.
-            bias (bool, optional): Defaults to True.
+            bias (Union[bool, float], optional): Defaults to True. If not a boolean, it will be the value that initializes the bias.
             device (_type_, optional): Defaults to None.
             dtype (_type_, optional): Defaults to None.
         """
-        super().__init__(in_features, out_features, bias, device, dtype)
-        self.register_parameter(
-            "scale_w",
-            nn.Parameter(
-                torch.as_tensor([math.sqrt(2 / in_features)]), requires_grad=True
-            ),
-        )
-        self.weight.data.normal_()
-        if self.bias is not None:
-            self.bias.data = torch.ones(1)
+        super().__init__()
+        self.weight = EqualizedWeight(out_features, in_features)
+        if bias is False:
+            self.bias = None
+        else:
+            bias_value = 1 if bias is True else bias
+            self.bias = nn.Parameter(
+                torch.ones(out_features) * bias_value, requires_grad=True
+            )
 
     def forward(self, input: Tensor) -> Tensor:
         """Forward call of equalized linear.
@@ -63,7 +86,7 @@ class EqualLinear(nn.Linear):
         """
         return F.linear(
             input,
-            self.weight * self.scale_w,
+            self.weight(),
             self.bias,
         )
 
@@ -81,9 +104,6 @@ class EqualConv2d(nn.Module):
         dilation: int = 1,
         groups: int = 1,
         bias: bool = True,
-        padding_mode: str = "zeros",
-        device=None,
-        dtype=None,
     ) -> None:
         """Initializes an equalized conv2d.
 
@@ -96,55 +116,25 @@ class EqualConv2d(nn.Module):
             dilation (int, optional): Defaults to 1.
             groups (int, optional): Defaults to 1.
             bias (bool, optional): Defaults to True.
-            padding_mode (str, optional): Defaults to "zeros".
-            device (_type_, optional): Defaults to None.
-            dtype (_type_, optional): Defaults to None.
         """
         super().__init__()
-        self._conv = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            bias=False,
-            padding_mode=padding_mode,
-            device=device,
-            dtype=dtype,
-        )
-        self._conv.weight.data.normal_(0, 1)
 
-        self.register_buffer(
-            "scale_w",
-            torch.Tensor([math.sqrt(2 / (in_channels * (kernel_size**2)))]),
+        self.kernel_size = kernel_size
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.stride = stride
+        self.dilation = dilation
+        self.padding = padding
+        self.groups = groups
+
+        self.weight = EqualizedWeight(
+            out_channels, in_channels, kernel_size, kernel_size
         )
 
         if bias is not False:
-            self._bias = nn.Parameter(
-                data=torch.zeros(out_channels), requires_grad=True
-            )
+            self.bias = nn.Parameter(data=torch.zeros(out_channels), requires_grad=True)
         else:
-            self._bias = None
-
-    @property
-    def weight(self) -> torch.Tensor:
-        """Weight property of EqualConv2d.
-
-        Returns:
-            torch.Tensor:
-        """
-        return self._conv.weight * self.scale_w
-
-    @property
-    def bias(self) -> torch.Tensor:
-        """Bias property of EqualConv2d.
-
-        Returns:
-            torch.Tensor:
-        """
-        return self._bias
+            self.bias = None
 
     def forward(self, input: Tensor) -> Tensor:
         """Apply an equalized conv2d.
@@ -157,30 +147,50 @@ class EqualConv2d(nn.Module):
         """
         return F.conv2d(
             input,
-            self.weight,
+            self.weight(),
             self.bias,
-            self._conv.stride,
-            self._conv.padding,
-            self._conv.dilation,
-            self._conv.groups,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
         )
 
 
 class ModulatedConv2D(nn.Module):
     """Modulated convolution layer."""
 
-    def __init__(self, eps: float = None, **conv_params) -> None:
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        padding: int,
+        eps: float = None,
+        demod: bool = True,
+    ) -> None:
         """Initializes a modulated convolution.
 
         Args:
+            in_channels (int): The number of input channels.
+            out_channels (int): The number of output channels.
+            kernel_size (int): The number of kernel_size.
+            padding (int): The number of padded pixels.
             eps (float, optional): Defaults to the value controlled by the constants class.
+            demod (bool, optional): Whether to apply demodulation or not. Defaults to True.
 
         Returns:
             None:
         """
         super().__init__()
-        self.eps = Constants.eps if eps is None else eps
-        self.eq_conv = EqualConv2d(**conv_params)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.padding = padding
+        self.kernel_size = kernel_size
+        self.weight = EqualizedWeight(
+            out_channels, in_channels, kernel_size, kernel_size
+        )
+        self.eps = eps if eps is not None else Constants.eps
+        self.demod = demod
 
     def forward(self, x: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
         """Compute the modulated convolution.
@@ -192,18 +202,18 @@ class ModulatedConv2D(nn.Module):
         Returns:
             torch.Tensor: Modulated convolution result.
         """
-        B = x.size(0)
-        w = self.eq_conv.weight.unsqueeze(0)
-        w = w * s.reshape(B, 1, -1, 1, 1)
+        B, C, H, W = x.size()
+        weights = self.weight().unsqueeze(0)
+        weights = weights * s.reshape(B, 1, -1, 1, 1)
         # sigma is 1 / sqrt(sum(w^2))
-        sigma = w.square().sum(dim=(2, 3, 4)).add(self.eps).rsqrt()
-        x = x * s.reshape(B, -1, 1, 1)
-        x = self.eq_conv(x)
-        # add bias too if applicable
-        if self.eq_conv.bias is not None:
-            x = x * sigma.to(x.dtype).reshape(B, -1, 1, 1) + self.eq_conv.bias.reshape(
-                1, -1, 1, 1
+        if self.demod:
+            sigma_inv = torch.rsqrt(
+                weights.square().sum(dim=(2, 3, 4), keepdim=True) + self.eps
             )
-        else:
-            x = x * sigma.to(x.dtype).reshape(B, -1, 1, 1)
-        return x
+            weights = weights * sigma_inv
+        _, _, *ws = weights.shape
+        weights = weights.reshape(B * self.out_channels, *ws)
+        x = x.reshape(1, -1, H, W)
+        # unbiased convolution
+        x = F.conv2d(x, weights, padding=self.padding, groups=B)
+        return x.reshape(-1, self.out_channels, H, W)

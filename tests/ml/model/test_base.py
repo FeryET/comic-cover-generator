@@ -19,7 +19,6 @@ def test_modulated_conv2d_intialization_pass(in_channels, out_channels, eps):
         out_channels=out_channels,
         kernel_size=1,
         padding=0,
-        stride=1,
         eps=eps,
     )
 
@@ -40,7 +39,6 @@ def test_modulated_conv2d_forward_pass(out_channels, input_shape):
         out_channels=out_channels,
         kernel_size=1,
         padding=0,
-        stride=1,
     )
     conv2d.forward(
         torch.rand(B, C, H, W),
@@ -65,7 +63,6 @@ def test_modulated_conv2d_backward_pass(out_channels, input_shape):
         out_channels=out_channels,
         kernel_size=1,
         padding=0,
-        stride=1,
     )
     opt = torch.optim.SGD(conv2d.parameters(), lr=0.01)
     opt.zero_grad()

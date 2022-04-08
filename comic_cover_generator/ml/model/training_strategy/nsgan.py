@@ -1,6 +1,9 @@
 """Loss module."""
 
+import math
+
 import torch
+from torch import Tensor, nn
 from transformers import BatchEncoding
 
 from comic_cover_generator.ml.constants import Constants
@@ -48,25 +51,112 @@ def critic_loss(
     return loss
 
 
+def compute_r1_regularization(
+    outputs: torch.Tensor,
+    inputs: torch.Tensor,
+) -> torch.Tensor:
+    """Compute r1 gradient penalty.
+
+    Args:
+        outputs (torch.Tensor):
+        inputs (torch.Tensor):
+
+    Returns:
+        torch.Tensor:
+    """
+    (grad_real,) = torch.autograd.grad(
+        outputs=outputs.sum(),
+        inputs=inputs,
+        grad_outputs=outputs.new_ones(outputs.size(0)),
+        create_graph=True,
+    )
+    grad_penalty = torch.linalg.norm(grad_real.flatten(1), dim=-1).square().mean()
+    return grad_penalty
+
+
+class PathLengthPenalty(nn.Module):
+    """Path length penalty proposed by StyleGan2."""
+
+    def __init__(self, beta: float = 0.99) -> None:
+        """Initialize a PathLengthPenalty object.
+
+        Args:
+            beta (float, optional): The exponential decay. Defaults to 0.99.
+        """
+        super().__init__()
+        self.register_buffer("beta", torch.as_tensor(beta))
+        self.steps = nn.Parameter(torch.tensor(0.0), requires_grad=False)
+        self.exponential_sum = nn.Parameter(torch.tensor(0.0), requires_grad=False)
+
+    def forward(self, x: Tensor, w: Tensor) -> Tensor:
+        """Compute and get the penalty.
+
+        Args:
+            x (Tensor): 4D generated images.
+            w (Tensor): 2D hidden representation input.
+
+        Returns:
+            Tensor:
+        """
+        n_pixels = x.size(2) * x.size(3)
+        y = torch.randn_like(x)
+        o = (x * y).sum() / math.sqrt(n_pixels)
+        grads, *_ = torch.autograd.grad(
+            outputs=o,
+            inputs=w,
+            grad_outputs=torch.ones_like(o),
+            create_graph=True,
+        )
+        norm = grads.square().sum(dim=2).mean(dim=1).sqrt()
+        if self.steps > 0:
+            a = self.exponential_sum / (1 - self.beta.pow(self.steps))
+            loss = torch.mean((norm - a) ** 2)
+        else:
+            loss = norm.new_tensor(0)
+        mean = norm.mean().detach()
+        self.exponential_sum.mul_(self.beta).add_(mean, alpha=1 - self.beta)
+        self.steps.add_(1)
+        return loss
+
+
+def _batch_index_condition(batch_idx, interval, optimizer_idx):
+    return (batch_idx + 1) % interval == optimizer_idx
+
+
 class NSGANTrainingStrategy:
     """Non Saturated GAN training strategy."""
 
     def __init__(
         self,
-        regularization_penalty: float,
-        regularization_interval: int,
+        r1_penalty: float,
+        r1_regularization_interval: int,
+        pl_regularization_interval: int,
+        pl_start_from_iteration: int,
+        path_length_beta: float = 0.99,
     ) -> None:
         """Initialize an NSGAN training strategy.
 
         Args:
-            regularization_penalty (float):
-            regularization_interval (int):
+            r1_penalty (float):
+            r1_regularization_interval (int):
+            pl_regularization_interval (int):
+            pl_start_from_iteration (int):
+            path_length_beta (float): Defaults to 0.99.
 
         Returns:
             None:
         """
-        self.regularization_penalty = regularization_penalty
-        self.regularization_interval = regularization_interval
+        self.r1_penalty = r1_penalty
+        self.r1_regularization_interval = r1_regularization_interval
+        self.pl_regularization_interval = pl_regularization_interval
+
+        # since each batch goes only to one of either of generator or discriminator
+        # it's imperative to make sure that we apply these relatively
+        self.scaled_r1_regualirzation_interval = r1_regularization_interval * 2
+        self.scaled_pl_regularization_interval = pl_regularization_interval * 2
+        self.pl_start_from_iteration = pl_start_from_iteration * 2
+
+        self.plp = PathLengthPenalty(path_length_beta)
         self.model: GAN = None
 
     def attach_model(self, model: GAN) -> None:
@@ -79,69 +169,92 @@ class NSGANTrainingStrategy:
             None:
         """
         self.model = model
+        self.plp = self.plp.to(model.device)
 
     def critic_loop(
         self,
         reals: torch.Tensor,
         seq: BatchEncoding,
         z: torch.Tensor,
+        stochastic_noise: torch.Tensor,
         batch_idx: int,
+        optimizer_idx: int,
     ) -> TrainingStrategy.CRITIC_LOOP_RESULT:
         """Apply a critic training loop.
 
         Args:
             reals (torch.Tensor):
-            seq (BatchEncoding)::
+            seq (BatchEncoding):
             z (torch.Tensor):
+            stochastic_noise (torch.Tensor):
+            batch_idx (int):
+            optimizer_idx (int):
 
         Returns:
             TrainingStrategy.CRITIC_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq)
-
-        reals.requires_grad_(True)
-
-        fakes = diff_augment(fakes, self.model.augmentation_policy)
+        if _batch_index_condition(
+            batch_idx, self.r1_regularization_interval, optimizer_idx
+        ):
+            reals.requires_grad_(True)
         reals = diff_augment(reals, self.model.augmentation_policy)
+        # compute the normal gan loss
+        fakes = self.model.generator(z, seq, stochastic_noise)
+        fakes = diff_augment(fakes, self.model.augmentation_policy)
 
-        logits_r = self.model.critic(reals)
         logits_f = self.model.critic(fakes)
+        logits_r = self.model.critic(reals)
 
-        if batch_idx % self.regularization_interval == 0:
-            (grad_real,) = torch.autograd.grad(
-                outputs=logits_f.sum(),
-                inputs=reals,
-                create_graph=True,
-                retain_graph=True,
+        loss = critic_loss(logits_r, logits_f, eps=Constants.eps)
+        if _batch_index_condition(
+            batch_idx, self.r1_regularization_interval, optimizer_idx
+        ):
+            # compute the regularization term only
+            loss = loss + (
+                compute_r1_regularization(logits_r, reals)
+                * self.r1_penalty
+                * self.r1_regularization_interval
+                * 0.5
             )
-            grad_penalty = (
-                grad_real.pow(2).reshape(grad_real.shape[0], -1).sum(1).mean()
-            )
-        else:
-            grad_penalty = 0
-        loss = (
-            critic_loss(logits_r, logits_f, eps=Constants.eps)
-            + grad_penalty * self.regularization_penalty
-        )
 
         return {"loss": loss}
 
     def generator_loop(
-        self, seq: BatchEncoding, z: torch.Tensor, batch_idx: int
+        self,
+        seq: BatchEncoding,
+        z: torch.Tensor,
+        stochastic_noise: torch.Tensor,
+        batch_idx: int,
+        optimizer_idx: int,
     ) -> TrainingStrategy.GENERATOR_LOOP_RESULT:
         """Apply a generator loop.
 
         Args:
             seq (BatchEncoding)::
             z (torch.Tensor):
+            stochastic_noise (torch.Tensor):
+            batch_idx (int):
+            optimizer_idx (int):
 
         Returns:
             TrainingStrategy.GENERATOR_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq)
+        fakes, w = self.model.generator(z, seq, stochastic_noise, return_w=True)
+        fakes = diff_augment(fakes, self.model.augmentation_policy)
         logits_f = self.model.critic(fakes)
-
         loss = generator_loss(logits_f, eps=Constants.eps)
+
+        if (
+            self.model.global_step > self.pl_start_from_iteration
+            and _batch_index_condition(
+                batch_idx, self.pl_regularization_interval, optimizer_idx
+            )
+        ):
+            if self.plp.beta.device != fakes.device:
+                self.plp = self.plp.to(fakes.device)
+            plp = self.plp(fakes, w)
+            if not plp.isnan():
+                loss = loss + plp
 
         return {"loss": loss, "fakes": fakes}
 
@@ -150,19 +263,22 @@ class NSGANTrainingStrategy:
         reals: torch.Tensor,
         seq: BatchEncoding,
         z: torch.Tensor,
+        stochastic_noise: torch.Tensor,
         batch_idx: int,
     ) -> TrainingStrategy.VALIDATION_LOOP_RESULT:
         """Apply a validation loop.
 
         Args:
             reals (torch.Tensor):
-            seq (BatchEncoding)::
+            seq (BatchEncoding):
             z (torch.Tensor):
+            stochastic_noise (torch.Tensor):
+            batch_idx (int):
 
         Returns:
             TrainingStrategy.VALIDATION_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq)
+        fakes = self.model.generator(z, seq, stochastic_noise)
 
         logits_r = self.model.critic(reals)
         logits_f = self.model.critic(fakes)

@@ -115,20 +115,23 @@ class WGANPlusGPTrainingStrategy:
         reals: torch.Tensor,
         seq: BatchEncoding,
         z: torch.Tensor,
+        stochastic_noise: torch.Tensor,
         batch_idx: int,
+        optimizer_idx: int,
     ) -> TrainingStrategy.CRITIC_LOOP_RESULT:
         """Apply a critic training loop for WGAN-GP.
 
         Args:
             reals (torch.Tensor):
-            seq (BatchEncoding)::
+            seq (BatchEncoding):
             z (torch.Tensor):
             batch_idx (int):
+            optimizer_idx (int):
 
         Returns:
             TrainingStrategy.CRITIC_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq)
+        fakes = self.model.generator(z, seq, stochastic_noise)
 
         fakes = diff_augment(fakes, self.model.augmentation_policy)
         reals = diff_augment(reals, self.model.augmentation_policy)
@@ -142,19 +145,27 @@ class WGANPlusGPTrainingStrategy:
         return {"loss": loss_critic}
 
     def generator_loop(
-        self, seq: BatchEncoding, z: torch.Tensor, batch_idx: int
+        self,
+        seq: BatchEncoding,
+        z: torch.Tensor,
+        stochastic_noise: torch.Tensor,
+        batch_idx: int,
+        optimizer_idx: int,
     ) -> TrainingStrategy.GENERATOR_LOOP_RESULT:
         """Apply a generator training loop for WGAN-GP.
 
         Args:
-            seq (BatchEncoding)::
+            seq (BatchEncoding):
             z (torch.Tensor):
             batch_idx (int):
+            optimizer_idx (int):
 
         Returns:
             TrainingStrategy.GENERATOR_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq)
+        fakes = self.model.generator(z, seq, stochastic_noise)
+        fakes = diff_augment(fakes, self.model.augmentation_policy)
+
         critic_gen_fake = self.model.critic(fakes).reshape(-1)
         loss_gen = generator_loss_fn(critic_gen_fake)
 
@@ -165,6 +176,7 @@ class WGANPlusGPTrainingStrategy:
         reals: torch.Tensor,
         seq: BatchEncoding,
         z: torch.Tensor,
+        stochastic_noise: torch.Tensor,
         batch_idx: int,
     ) -> TrainingStrategy.VALIDATION_LOOP_RESULT:
         """Apply a validation loop for WGAN-GP.
@@ -178,7 +190,7 @@ class WGANPlusGPTrainingStrategy:
         Returns:
             TrainingStrategy.VALIDATION_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq)
+        fakes = self.model.generator(z, seq, stochastic_noise)
         critic_score_fakes = self.model.critic(fakes)
         critic_score_reals = self.model.critic(reals)
         loss_critic = critic_loss_fn(critic_score_fakes, critic_score_reals, 0, 0)

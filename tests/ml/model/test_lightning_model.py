@@ -60,7 +60,7 @@ def test_training_step_input_pass(model, batch, optimizer_idx):
     with mock.patch.object(
         model,
         "_extract_inputs",
-        return_value=(torch.ones(1), torch.zeros(1), torch.rand(1)),
+        return_value=(torch.ones(1), torch.zeros(1), torch.rand(1), torch.rand(1)),
     ), mock.patch.object(model, "log", autospec=True):
         model.training_step(batch, 0, optimizer_idx)
         model._extract_inputs.assert_called_once()

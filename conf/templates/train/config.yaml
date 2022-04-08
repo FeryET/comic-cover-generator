@@ -29,5 +29,8 @@ trainer:
 training_strategy_params:
   cls: "${get_cls: comic_cover_generator.ml.model.training_strategy.nsgan.NSGANTrainingStrategy}"
   kwargs:
-    regularization_penalty: 5
-    regularization_interval: 16
+    r1_penalty: 10
+    r1_regularization_interval: 16
+    pl_regularization_interval: 8
+    pl_start_from_iteration: 10000
+    path_length_beta: 0.99
