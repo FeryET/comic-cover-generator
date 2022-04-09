@@ -66,6 +66,8 @@ class Generator(nn.Module, Freezeable):
                 " value in channels corresponds to a block which includes an 2x"
                 " upsampler."
             )
+        # path length penalty for generator
+        self.path_length_mean = torch.zeros((), requires_grad=False)
 
         # mapping network properties
         self.latent_dim = latent_dim

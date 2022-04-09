@@ -5,7 +5,6 @@ import os
 import hydra
 import mlflow
 import pytorch_lightning as pl
-import torch
 from hydra.utils import get_class, get_original_cwd, instantiate
 from omegaconf import DictConfig, OmegaConf
 
@@ -95,9 +94,6 @@ def train(cfg: DictConfig):
     mlflow.set_tracking_uri(config["logger"].pop("tracking_uri"))
     mlflow.set_experiment("comic-cover-generator")
     mlflow.pytorch.autolog(**config["logger"])
-
-    if config.get("detect_anamoly", False):
-        torch.autograd.set_detect_anomaly(True)
 
     with mlflow.start_run():
         mlflow.log_artifact(".hydra/config.yaml", "config.yaml")

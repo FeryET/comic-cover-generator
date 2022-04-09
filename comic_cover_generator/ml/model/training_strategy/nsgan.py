@@ -1,9 +1,9 @@
 """Loss module."""
 
 import math
+from typing import Tuple
 
 import torch
-from torch import Tensor, nn
 from torch.nn import functional as F
 from transformers import BatchEncoding
 
@@ -66,44 +66,31 @@ def compute_r1_regularization(
     return grad_penalty
 
 
-class PathLengthPenalty(nn.Module):
-    """Path length penalty proposed by StyleGan2."""
+def compute_path_length_regularization(
+    fakes: torch.Tensor,
+    w: torch.Tensor,
+    mean_path_length: torch.Tensor,
+    beta: float = 0.99,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute path length regualization.
 
-    def __init__(self, beta: float = 0.99) -> None:
-        """Initialize a PathLengthPenalty object.
+    Args:
+        fakes (torch.Tensor): Fake images 4D.
+        w (torch.Tensor): Mapping network input for generator blocks. 3D.
+        mean_path_length (torch.Tensor):  previous mean average path length. scaler.
+        beta (float, optional): Decay coefficient. Defaults to 0.99.
 
-        Args:
-            beta (float, optional): The exponential decay. Defaults to 0.99.
-        """
-        super().__init__()
-        self.register_buffer("beta", torch.as_tensor(beta))
-        self.steps = nn.Parameter(torch.tensor(0.0), requires_grad=False)
-        self.exponential_sum = nn.Parameter(torch.tensor(0.0), requires_grad=False)
-
-    def forward(self, x: Tensor, w: Tensor) -> Tensor:
-        """Compute and get the penalty.
-
-        Args:
-            x (Tensor): 4D generated images.
-            w (Tensor): 3D mapping network input. [n_gen_blocks, batch_size, w_dim]
-
-        Returns:
-            Tensor:
-        """
-        n_pixels = x.size(2) * x.size(3)
-        y = torch.randn_like(x)
-        o = (x * y).sum() / math.sqrt(n_pixels)
-        grads, *_ = torch.autograd.grad(outputs=o, inputs=[w], create_graph=True)
-        norm = grads.square().sum(2).mean(1).sqrt()
-        if self.steps > 0:
-            a = self.exponential_sum / (1 - self.beta.pow(self.steps))
-            loss = torch.mean((norm - a) ** 2)
-        else:
-            loss = norm.new_tensor(0)
-        mean = norm.mean().detach()
-        self.exponential_sum.mul_(self.beta).add_(mean, alpha=1 - self.beta)
-        self.steps.add_(1)
-        return loss
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    noise = torch.randn_like(fakes) / math.sqrt(fakes.size(2) * fakes.size(3))
+    (grad,) = torch.autograd.grad(
+        outputs=(fakes * noise).sum(), inputs=w, create_graph=True
+    )
+    path_lengths = torch.sqrt(grad.pow(2).sum(2).mean(1))
+    path_mean = mean_path_length + (1 - beta) * (path_lengths.mean() - mean_path_length)
+    pl_penalty = (path_lengths - path_mean).pow(2).mean()
+    return pl_penalty, path_mean.detach(), path_lengths
 
 
 def _interval_condition(batch_idx, interval):
@@ -115,8 +102,8 @@ class NSGANTrainingStrategy:
 
     def __init__(
         self,
-        r1_penalty: float,
-        pl_penalty: float,
+        r1_penalty_coef: float,
+        pl_penalty_coef: float,
         r1_regularization_interval: int,
         pl_regularization_interval: int,
         pl_start_from_iteration: int,
@@ -134,8 +121,8 @@ class NSGANTrainingStrategy:
         Returns:
             None:
         """
-        self.r1_penalty = r1_penalty
-        self.pl_penalty = pl_penalty
+        self.r1_penalty_coef = r1_penalty_coef
+        self.pl_penalty_coef = pl_penalty_coef
         self.r1_regularization_interval = r1_regularization_interval
         self.pl_regularization_interval = pl_regularization_interval
 
@@ -145,7 +132,7 @@ class NSGANTrainingStrategy:
         self.scaled_pl_regularization_interval = pl_regularization_interval
         self.pl_start_from_iteration = pl_start_from_iteration
 
-        self.plp = PathLengthPenalty(path_length_beta)
+        self.path_length_beta = path_length_beta
         self.model: GAN = None
 
     def attach_model(self, model: GAN) -> None:
@@ -158,7 +145,6 @@ class NSGANTrainingStrategy:
             None:
         """
         self.model = model
-        self.plp = self.plp.to(model.device)
 
     def critic_loop(
         self,
@@ -197,7 +183,7 @@ class NSGANTrainingStrategy:
             # compute the regularization term only
             loss = loss + (
                 compute_r1_regularization(logits_r, reals)
-                * self.r1_penalty
+                * self.r1_penalty_coef
                 * self.r1_regularization_interval
                 * 0.5
             )
@@ -234,11 +220,21 @@ class NSGANTrainingStrategy:
             self.model.global_step > self.pl_start_from_iteration
             and _interval_condition(batch_idx, self.pl_regularization_interval)
         ):
-            if self.plp.beta.device != fakes.device:
-                self.plp = self.plp.to(fakes.device)
-            plp = self.plp(fakes, w)
-            if not plp.isnan():
-                loss = loss + plp * self.pl_penalty * self.pl_regularization_interval
+            (
+                path_length_penalty,
+                path_mean,
+                path_lengths,
+            ) = compute_path_length_regularization(
+                fakes, w, self.model.generator.path_length_mean, self.path_length_beta
+            )
+            self.model.generator.path_length_mean = path_mean
+            if not path_length_penalty.isnan():
+                loss = (
+                    loss
+                    + path_length_penalty
+                    * self.pl_penalty_coef
+                    * self.pl_regularization_interval
+                )
 
         return {"loss": loss, "fakes": fakes}
 
