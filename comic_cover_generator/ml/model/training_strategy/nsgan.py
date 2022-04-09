@@ -4,16 +4,16 @@ import math
 from typing import Tuple
 
 import torch
-from torch.nn import functional as F
 from transformers import BatchEncoding
 
+from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.model.diffaugment import diff_augment
 from comic_cover_generator.ml.model.gan import GAN
 from comic_cover_generator.ml.model.training_strategy.base import TrainingStrategy
 
 
 @torch.jit.script
-def generator_loss(logits_f: torch.Tensor) -> torch.Tensor:
+def generator_loss(logits_f: torch.Tensor, eps: float) -> torch.Tensor:
     """Get generator loss for NSGAN.
 
     Args:
@@ -22,13 +22,14 @@ def generator_loss(logits_f: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor:
     """
-    return F.softplus(-logits_f).mean()
+    return -torch.log(torch.sigmoid(logits_f) + eps).float().mean()
 
 
 @torch.jit.script
 def critic_loss(
     logits_r: torch.Tensor,
     logits_f: torch.Tensor,
+    eps: float,
 ) -> torch.Tensor:
     """Get critic loss for negative NSGAN.
 
@@ -39,9 +40,9 @@ def critic_loss(
     Returns:
         torch.Tensor:
     """
-    r_loss = F.softplus(-logits_r)
-    f_loss = F.softplus(logits_f)
-    return r_loss.mean() + f_loss.mean()
+    f_loss = -torch.log(1 - torch.sigmoid(logits_f) + eps)
+    r_loss = -torch.log(torch.sigmoid(logits_r) + eps)
+    return r_loss.float().mean() + f_loss.float().mean()
 
 
 def compute_r1_regularization(
@@ -108,6 +109,7 @@ class NSGANTrainingStrategy:
         pl_regularization_interval: int,
         pl_start_from_iteration: int,
         path_length_beta: float = 0.99,
+        eps: float = None,
     ) -> None:
         """Initialize an NSGAN training strategy.
 
@@ -117,6 +119,7 @@ class NSGANTrainingStrategy:
             pl_regularization_interval (int):
             pl_start_from_iteration (int):
             path_length_beta (float): Defaults to 0.99.
+            eps (float, optinal): If none, defaults to Constants.eps.
 
         Returns:
             None:
@@ -134,6 +137,10 @@ class NSGANTrainingStrategy:
 
         self.path_length_beta = path_length_beta
         self.model: GAN = None
+
+        if eps is None:
+            eps = Constants.eps
+        self.eps = eps
 
     def attach_model(self, model: GAN) -> None:
         """Attach a model to this strategy.
@@ -178,7 +185,7 @@ class NSGANTrainingStrategy:
 
         logits_f = self.model.critic(fakes)
         logits_r = self.model.critic(reals)
-        loss = critic_loss(logits_r, logits_f)
+        loss = critic_loss(logits_r, logits_f, self.eps)
         if _interval_condition(batch_idx, self.r1_regularization_interval):
             # compute the regularization term only
             loss = loss + (
@@ -215,7 +222,7 @@ class NSGANTrainingStrategy:
         )
         fakes = diff_augment(fakes, self.model.augmentation_policy)
         logits_f = self.model.critic(fakes)
-        loss = generator_loss(logits_f)
+        loss = generator_loss(logits_f, self.eps)
         if (
             self.model.global_step > self.pl_start_from_iteration
             and _interval_condition(batch_idx, self.pl_regularization_interval)
@@ -264,7 +271,7 @@ class NSGANTrainingStrategy:
         logits_f = self.model.critic(fakes)
 
         return {
-            "generator_loss": generator_loss(logits_f),
-            "critic_loss": critic_loss(logits_r, logits_f),
+            "generator_loss": generator_loss(logits_f, self.eps),
+            "critic_loss": critic_loss(logits_r, logits_f, self.eps),
             "fakes": fakes,
         }
