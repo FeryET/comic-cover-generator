@@ -90,7 +90,7 @@ class Generator(nn.Module, Freezeable):
                 output_dim=self.conv_channels[0],
             ),
             nn.Unflatten(dim=-1, unflattened_size=(self.conv_channels[0], 1, 1)),
-            BlurUpsample(),
+            nn.Upsample(scale_factor=4, mode="nearest"),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
