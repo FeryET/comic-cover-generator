@@ -22,7 +22,7 @@ def generator_loss(logits_f: torch.Tensor, eps: float) -> torch.Tensor:
     Returns:
         torch.Tensor:
     """
-    return -torch.log(torch.sigmoid(logits_f) + eps).float().mean()
+    return -torch.log(torch.sigmoid(logits_f) + eps).mean()
 
 
 @torch.jit.script
@@ -42,7 +42,7 @@ def critic_loss(
     """
     f_loss = -torch.log(1 - torch.sigmoid(logits_f) + eps)
     r_loss = -torch.log(torch.sigmoid(logits_r) + eps)
-    return r_loss.float().mean() + f_loss.float().mean()
+    return r_loss.mean() + f_loss.mean()
 
 
 def compute_r1_regularization(

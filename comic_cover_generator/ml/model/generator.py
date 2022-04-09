@@ -7,7 +7,12 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import BatchEncoding
 
-from comic_cover_generator.ml.model.base import EqualLinear, Freezeable, ModulatedConv2D
+from comic_cover_generator.ml.model.base import (
+    Blur,
+    EqualLinear,
+    Freezeable,
+    ModulatedConv2D,
+)
 from comic_cover_generator.ml.model.seq2vec import Seq2Vec
 from comic_cover_generator.typing import TypedDict
 
@@ -85,7 +90,7 @@ class Generator(nn.Module, Freezeable):
                 output_dim=self.conv_channels[0],
             ),
             nn.Unflatten(dim=-1, unflattened_size=(self.conv_channels[0], 1, 1)),
-            nn.Upsample(scale_factor=4),
+            BlurUpsample(),
         )
 
         self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
@@ -358,7 +363,7 @@ class GeneratorBlock(nn.Module):
         )
 
         if upsample:
-            self.upsample = nn.Upsample(scale_factor=2, mode="bilinear")
+            self.upsample = BlurUpsample()
         else:
             self.upsample = nn.Identity()
 
@@ -502,3 +507,27 @@ class StyleBlock(nn.Module):
         x = self.B(x, stochastic_noise) + self.bias.reshape(1, -1, 1, 1)
 
         return self.activation(x)
+
+
+class BlurUpsample(nn.Module):
+    """An upsample layer which applies a smoothing + bilinear upsample."""
+
+    def __init__(self):
+        """Initialize an upsampling layer."""
+        super().__init__()
+        self.up_sample = nn.Upsample(
+            scale_factor=2, mode="bilinear", align_corners=False
+        )
+
+        self.blur = Blur()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply an upsample.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        return self.blur(self.up_sample(x))

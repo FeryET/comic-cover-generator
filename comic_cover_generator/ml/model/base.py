@@ -217,3 +217,32 @@ class ModulatedConv2D(nn.Module):
         # unbiased convolution
         x = F.conv2d(x, weights, padding=self.padding, groups=B)
         return x.reshape(-1, self.out_channels, H, W)
+
+
+class Blur(nn.Module):
+    """A blurring layer."""
+
+    def __init__(self) -> None:
+        """Intiialize the blurring layer."""
+        super().__init__()
+        kernel = torch.tensor([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=torch.float32)[
+            None, None, ...
+        ]
+        kernel = kernel / kernel.sum()
+        self.register_buffer("kernel", kernel)
+        self.pad = nn.ReplicationPad2d(1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply a blurring pass.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        b, c, h, w = x.size()
+        x = x.view(-1, 1, h, w)
+        x = self.pad(x)
+        x = F.conv2d(x, self.kernel.to(x.dtype))
+        return x.view(b, c, h, w)

@@ -4,9 +4,15 @@ from typing import Tuple
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from comic_cover_generator.ml.constants import Constants
-from comic_cover_generator.ml.model.base import EqualConv2d, EqualLinear, Freezeable
+from comic_cover_generator.ml.model.base import (
+    Blur,
+    EqualConv2d,
+    EqualLinear,
+    Freezeable,
+)
 from comic_cover_generator.typing import TypedDict
 
 
@@ -30,12 +36,12 @@ class CriticResidualBlock(nn.Module):
             nn.LeakyReLU(0.2),
             EqualConv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
             nn.LeakyReLU(0.2),
-            nn.Upsample(scale_factor=0.5, mode="bilinear"),
+            BlurDownsample(),
         )
 
         self.residual = nn.Sequential(
             EqualConv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0),
-            nn.Upsample(scale_factor=0.5, mode="bilinear"),
+            BlurDownsample(),
         )
 
         self.register_buffer("residual_scaler", torch.as_tensor([1.0 / math.sqrt(2)]))
@@ -148,3 +154,29 @@ class Critic(nn.Module, Freezeable):
         for p in self.parameters():
             p.requires_grad = True
         return self
+
+
+class BlurDownsample(nn.Module):
+    """Downsampling layer which smooths and then interpolates the input."""
+
+    def __init__(self):
+        """Initialize a downsampling layer."""
+        super().__init__()
+        # Smoothing layer
+        self.blur = Blur()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply a downsample.
+
+        Args:
+            x (torch.Tensor):
+
+        Returns:
+            torch.Tensor:
+        """
+        # Smoothing or blurring
+        x = self.blur(x)
+        # Scaled down
+        return F.interpolate(
+            x, (x.shape[2] // 2, x.shape[3] // 2), mode="bilinear", align_corners=False
+        )
