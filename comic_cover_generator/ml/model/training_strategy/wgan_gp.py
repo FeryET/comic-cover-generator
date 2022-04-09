@@ -131,7 +131,7 @@ class WGANPlusGPTrainingStrategy:
         Returns:
             TrainingStrategy.CRITIC_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq, stochastic_noise)
+        fakes = self.model.generator._train_step_forward(z, seq, stochastic_noise)
 
         fakes = diff_augment(fakes, self.model.augmentation_policy)
         reals = diff_augment(reals, self.model.augmentation_policy)
@@ -163,7 +163,7 @@ class WGANPlusGPTrainingStrategy:
         Returns:
             TrainingStrategy.GENERATOR_LOOP_RESULT:
         """
-        fakes = self.model.generator(z, seq, stochastic_noise)
+        fakes = self.model.generator._train_step_forward(z, seq, stochastic_noise)
         fakes = diff_augment(fakes, self.model.augmentation_policy)
 
         critic_gen_fake = self.model.critic(fakes).reshape(-1)

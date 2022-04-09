@@ -4,16 +4,16 @@ import math
 
 import torch
 from torch import Tensor, nn
+from torch.nn import functional as F
 from transformers import BatchEncoding
 
-from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.model.diffaugment import diff_augment
 from comic_cover_generator.ml.model.gan import GAN
 from comic_cover_generator.ml.model.training_strategy.base import TrainingStrategy
 
 
 @torch.jit.script
-def generator_loss(logits_f: torch.Tensor, eps: float) -> torch.Tensor:
+def generator_loss(logits_f: torch.Tensor) -> torch.Tensor:
     """Get generator loss for NSGAN.
 
     Args:
@@ -22,33 +22,26 @@ def generator_loss(logits_f: torch.Tensor, eps: float) -> torch.Tensor:
     Returns:
         torch.Tensor:
     """
-    loss = -torch.mean(torch.log(torch.sigmoid(logits_f) + eps))
-    return loss
+    return F.softplus(-logits_f).mean()
 
 
+@torch.jit.script
 def critic_loss(
     logits_r: torch.Tensor,
     logits_f: torch.Tensor,
-    eps: float,
-    generated_weight: float = 1,
-    real_weight: float = 1,
 ) -> torch.Tensor:
     """Get critic loss for negative NSGAN.
 
     Args:
         logits_r (torch.Tensor):
         logits_f (torch.Tensor):
-        generated_weight (float, optional): Defaults to 1.
-        real_weight (float, optional): Defaults to 1.
 
     Returns:
         torch.Tensor:
     """
-    loss = -torch.mean(
-        torch.log(torch.sigmoid(logits_r) + eps) * real_weight
-        + torch.log(1 - torch.sigmoid(logits_f) + eps) * generated_weight
-    )
-    return loss
+    r_loss = F.softplus(-logits_r)
+    f_loss = F.softplus(logits_f)
+    return r_loss.mean() + f_loss.mean()
 
 
 def compute_r1_regularization(
@@ -65,12 +58,11 @@ def compute_r1_regularization(
         torch.Tensor:
     """
     (grad_real,) = torch.autograd.grad(
-        outputs=outputs,
+        outputs=outputs.sum(),
         inputs=inputs,
-        grad_outputs=outputs.new_ones(outputs.shape),
         create_graph=True,
     )
-    grad_penalty = torch.linalg.norm(grad_real.flatten(1), dim=-1).square().mean()
+    grad_penalty = grad_real.pow(2).flatten(1).sum(1).mean()
     return grad_penalty
 
 
@@ -93,7 +85,7 @@ class PathLengthPenalty(nn.Module):
 
         Args:
             x (Tensor): 4D generated images.
-            w (Tensor): 2D hidden representation input.
+            w (Tensor): 3D mapping network input. [n_gen_blocks, batch_size, w_dim]
 
         Returns:
             Tensor:
@@ -101,13 +93,8 @@ class PathLengthPenalty(nn.Module):
         n_pixels = x.size(2) * x.size(3)
         y = torch.randn_like(x)
         o = (x * y).sum() / math.sqrt(n_pixels)
-        grads, *_ = torch.autograd.grad(
-            outputs=o,
-            inputs=w,
-            grad_outputs=torch.ones_like(o),
-            create_graph=True,
-        )
-        norm = torch.linalg.norm(grads, dim=-1)
+        grads, *_ = torch.autograd.grad(outputs=o, inputs=[w], create_graph=True)
+        norm = grads.square().sum(2).mean(1).sqrt()
         if self.steps > 0:
             a = self.exponential_sum / (1 - self.beta.pow(self.steps))
             loss = torch.mean((norm - a) ** 2)
@@ -129,6 +116,7 @@ class NSGANTrainingStrategy:
     def __init__(
         self,
         r1_penalty: float,
+        pl_penalty: float,
         r1_regularization_interval: int,
         pl_regularization_interval: int,
         pl_start_from_iteration: int,
@@ -147,6 +135,7 @@ class NSGANTrainingStrategy:
             None:
         """
         self.r1_penalty = r1_penalty
+        self.pl_penalty = pl_penalty
         self.r1_regularization_interval = r1_regularization_interval
         self.pl_regularization_interval = pl_regularization_interval
 
@@ -198,12 +187,12 @@ class NSGANTrainingStrategy:
         reals = diff_augment(reals, self.model.augmentation_policy)
 
         # compute the normal gan loss
-        fakes = self.model.generator(z, seq, stochastic_noise)
+        fakes = self.model.generator._train_step_forward(z, seq, stochastic_noise)
         fakes = diff_augment(fakes, self.model.augmentation_policy)
 
         logits_f = self.model.critic(fakes)
         logits_r = self.model.critic(reals)
-        loss = critic_loss(logits_r, logits_f, eps=Constants.eps)
+        loss = critic_loss(logits_r, logits_f)
         if _interval_condition(batch_idx, self.r1_regularization_interval):
             # compute the regularization term only
             loss = loss + (
@@ -235,10 +224,12 @@ class NSGANTrainingStrategy:
         Returns:
             TrainingStrategy.GENERATOR_LOOP_RESULT:
         """
-        fakes, w = self.model.generator(z, seq, stochastic_noise, return_w=True)
+        fakes, w = self.model.generator._train_step_forward(
+            z, seq, stochastic_noise, return_w=True
+        )
         fakes = diff_augment(fakes, self.model.augmentation_policy)
         logits_f = self.model.critic(fakes)
-        loss = generator_loss(logits_f, eps=Constants.eps)
+        loss = generator_loss(logits_f)
         if (
             self.model.global_step > self.pl_start_from_iteration
             and _interval_condition(batch_idx, self.pl_regularization_interval)
@@ -247,7 +238,7 @@ class NSGANTrainingStrategy:
                 self.plp = self.plp.to(fakes.device)
             plp = self.plp(fakes, w)
             if not plp.isnan():
-                loss = loss + plp
+                loss = loss + plp * self.pl_penalty * self.pl_regularization_interval
 
         return {"loss": loss, "fakes": fakes}
 
@@ -277,7 +268,7 @@ class NSGANTrainingStrategy:
         logits_f = self.model.critic(fakes)
 
         return {
-            "generator_loss": generator_loss(logits_f, eps=Constants.eps),
-            "critic_loss": critic_loss(logits_r, logits_f, eps=Constants.eps),
+            "generator_loss": generator_loss(logits_f),
+            "critic_loss": critic_loss(logits_r, logits_f),
             "fakes": fakes,
         }

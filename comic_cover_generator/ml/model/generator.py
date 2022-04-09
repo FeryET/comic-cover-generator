@@ -37,6 +37,7 @@ class Generator(nn.Module, Freezeable):
         conv_channels: Tuple[int, ...] = (512, 256, 128, 64, 32),
         output_shape: Tuple[int, int] = (64, 64),
         mapping_network_lr_coef: float = 1e-2,
+        mix_style_prob: float = 0.1,
         transformer_model: str = "prajjwal1/bert-tiny",
     ) -> None:
         """Initialize the generator.
@@ -47,6 +48,7 @@ class Generator(nn.Module, Freezeable):
             conv_channels (Tuple[int, ...], optional): Defaults to (512, 256, 128, 64, 32).
             output_shape (Tuple[int, int], optional): Defaults to (64, 64).
             mapping_network_lr_coef (float, optional): Defaults to 1e-2.
+            mix_style_prob (float, optional): Defaults to 0.1.
             transformer_model (str): the transfomer model used in this generator.
 
         Raises:
@@ -71,6 +73,7 @@ class Generator(nn.Module, Freezeable):
         # output shape
         self.output_shape = output_shape
         self.mapping_network_lr_coef = mapping_network_lr_coef
+        self.mix_style_prob = mix_style_prob
 
         self.conv_channels = list(conv_channels)
 
@@ -102,13 +105,9 @@ class Generator(nn.Module, Freezeable):
         self.rescale_rgb = nn.Tanh()
 
     def forward(
-        self,
-        z: torch.Tensor,
-        title_seq: BatchEncoding,
-        stochastic_noise: torch.Tensor,
-        return_w: bool = False,
+        self, z: torch.Tensor, title_seq: BatchEncoding, stochastic_noise: torch.Tensor
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """Map a noise and a sequence to an image.
+        """Model forward pass for prediction.
 
         Args:
             z (torch.Tensor): Latent noise input.
@@ -128,6 +127,39 @@ class Generator(nn.Module, Freezeable):
         rgb = None
         for f in self.features:
             x, rgb = f(x, w, stochastic_noise, rgb)
+        rgb = self.rescale_rgb(rgb)
+        return rgb
+
+    def _get_w(self, z):
+        if torch.rand(()).item() < self.mix_style_prob:
+            n_gen_blocks = len(self.features)
+            z1 = z
+            z2 = torch.randn_like(z)
+            w1 = self.latent_mapper(z1)
+            w2 = self.latent_mapper(z2)
+            cross_over_point = torch.randint(low=0, high=n_gen_blocks, size=()).item()
+            w1 = w1.unsqueeze(0).expand(cross_over_point, -1, -1)
+            w2 = w2.unsqueeze(0).expand(n_gen_blocks - cross_over_point, -1, -1)
+            return torch.cat((w1, w2), dim=0)
+        else:
+            return self.latent_mapper(z).expand(len(self.features), -1, -1)
+
+    def _train_step_forward(
+        self,
+        z: torch.Tensor,
+        title_seq: BatchEncoding,
+        stochastic_noise: torch.Tensor,
+        return_w: bool = False,
+    ):
+        if stochastic_noise.ndim == 3:
+            stochastic_noise = stochastic_noise.unsqueeze(1)
+        # get mapping network output, apply style mixing if needed
+        w = self._get_w(z)
+        # extract features from input text
+        x = self.seq2vec(title_seq)
+        rgb = None
+        for generator_block_index, f in enumerate(self.features):
+            x, rgb = f(x, w[generator_block_index], stochastic_noise, rgb)
         rgb = self.rescale_rgb(rgb)
         if return_w:
             return rgb, w
