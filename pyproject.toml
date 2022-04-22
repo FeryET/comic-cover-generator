@@ -40,7 +40,7 @@ preview = true
 
 [tool.isort]
 known_local_folder = "comic_cover_generator/"
-known_third_party = ["PIL", "h5py", "hydra", "matplotlib", "mlflow", "numpy", "omegaconf", "pandas", "psutil", "pytest", "pytorch_lightning", "setuptools", "tokenizers", "torch", "torchmetrics", "torchvision", "tqdm", "transformers"]
+known_third_party = ["PIL", "h5py", "hydra", "matplotlib", "mlflow", "numpy", "omegaconf", "pandas", "psutil", "pytest", "setuptools", "torch", "torchmetrics", "torchvision", "tqdm", "transformers"]
 line_length = 88
 profile = 'black'
 

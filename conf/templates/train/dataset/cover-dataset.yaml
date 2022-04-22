@@ -1,0 +1,11 @@
+metadata_csv: "${hydra:runtime.cwd}/data/dev_subset/sampled_dataset_seed_42_population_0.001.csv"
+images_folder: "${hydra:runtime.cwd}/data/dev_subset/image/"
+preload_images: True,
+preload_path: "${hydra:runtime.cwd}/cache/"
+image_size: [92, 64]
+image_transforms:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: torchvision.transforms.RandomCrop
+      size: [64, 64]
+    - _target_: torchvision.transforms.ToTensor

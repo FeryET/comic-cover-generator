@@ -1,24 +1,19 @@
 """Dataset module."""
-import string
 from collections import namedtuple
 from pathlib import Path
-from typing import NamedTuple, Optional, Sequence, Tuple
+from typing import Sequence, Tuple
 
 import h5py
 import numpy as np
 import pandas as pd
-import psutil
 import torch
-from PIL import Image, ImageOps
-from pytorch_lightning import LightningDataModule
-from tokenizers import Tokenizer
+from PIL import Image
 from torch import Tensor
-from torch.utils.data import DataLoader, Dataset, Subset, random_split
+from torch.utils.data import Dataset, Subset
 from torchvision import transforms as vision_transforms
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, BatchEncoding
 
-from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.typing import TypedDict
 
 
@@ -37,22 +32,10 @@ def _filter_non_existant_images(metadata_df: pd.DataFrame) -> pd.DataFrame:
     ].reset_index(drop=True)
 
 
-def _pad_image_to_shape(image: Image.Image, image_size: Tuple[int, int]) -> Image.Image:
-    return ImageOps.pad(
-        image,
-        image_size[::-1],
-        color=0,
-        centering=(0.0, 0.0),
-    )
-
-
 def _resize_image_to_shape(
     image: Image.Image, image_size: Tuple[int, int]
 ) -> Image.Image:
     return image.resize(image_size[::-1], resample=Image.NEAREST)
-
-
-GOOD_CHARS = set(string.printable) - set(string.whitespace)
 
 
 class MapToMinusOneAndOne:
@@ -71,7 +54,7 @@ class MapToMinusOneAndOne:
 
 
 class CoverDatasetItem(TypedDict):
-    """An item returned by the py:func:`CoverDataset<comic_cover_generator.ml.dataset.CoverDataet.__getitem__()`."""
+    """An item returned by the Dataset."""
 
     image: Tensor
     full_title: str
@@ -86,17 +69,17 @@ class CoverDatasetCollater:
         image: torch.Tensor
         title_seq: BatchEncoding
 
-    def __init__(self, tokenizer: Tokenizer, max_length: int) -> None:
+    def __init__(self, transformer_model: str, max_length: int) -> None:
         """Initialize a collator.
 
         Args:
-            tokenizer (Tokenizer):
+            transformer_model (str):
             max_length (int):
 
         Returns
             None:
         """
-        self.tokenizer = tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(transformer_model)
         self.max_length = max_length
 
     def __call__(
@@ -286,108 +269,36 @@ class CoverDataset(Dataset):
         return {"image": image, "full_title": full_title}
 
 
-class CoverDataModule(LightningDataModule):
-    """Cover data module for encapsulating cover dataset."""
+def split_dataset_to_subsets(
+    dataset: Dataset,
+    train_portion: float = 0.95,
+    val_portion: float = 0.05,
+    seed: int = 42,
+) -> Tuple[Subset, Subset]:
+    """Split dataset to train and val subsets.
 
-    class Subsets(NamedTuple):
-        """Subsets of a dataset."""
+    Args:
+        dataset (Dataset): The input dataset.
+        train_portion (float, optional): Defaults to 0.95.
+        val_portion (float, optional): Defaults to 0.05.
+        seed (int, optional): Defaults to 42.
 
-        train: Subset
-        val: Subset
+    Returns:
+        Tuple[Subset, Subset]: _description_
+    """
+    from torch.utils.data import random_split
 
-    class SubsetLengths(NamedTuple):
-        """Split lengths of a dataset."""
+    total = train_portion + val_portion
+    train_portion = train_portion / total
+    val_portion = val_portion / total
 
-        train: float
-        val: float
+    train_length = int(len(dataset) * train_portion)
+    val_length = len(dataset) - train_length
 
-    def __init__(
-        self,
-        dataset_params: CoverDatasetParams,
-        batch_size: int,
-        max_seq_length: 30,
-        transformer_model: str = "prajjwal1/bert-tiny",
-        subsets_lengths: "CoverDataModule.SubsetLengths" = None,
-        random_seed: int = None,
-    ):
-        """Initialize a data module.
+    train_dataset, val_dataset = random_split(
+        dataset,
+        [train_length, val_length],
+        generator=torch.Generator("cpu").manual_seed(seed),
+    )
 
-        Args:
-            dataset (CoverDataset):
-            batch_size (int):
-            subsets_lengths (CoverDataModule.Splits, optional): Defaults to None.
-            random_seed (int, optional): Defaults to None.
-
-        Returns:
-            None:
-        """
-        super().__init__()
-        self.dataset = CoverDataset(**dataset_params)
-        self.batch_size = batch_size
-        self.random_generator = torch.Generator("cpu").manual_seed(random_seed)
-        self.subsets: CoverDataModule.Subsets = None
-
-        train_length = int(
-            len(self.dataset) * subsets_lengths[0] / sum(subsets_lengths)
-        )
-        self.subsets_lengths = CoverDataModule.SubsetLengths(
-            train_length, len(self.dataset) - train_length
-        )
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            transformer_model, cache_dir=Constants.cache_dir
-        )
-
-        self.max_seq_length = max_seq_length
-
-    def setup(self, stage: Optional[str] = None) -> None:
-        """Setup the data module.
-
-        Args:
-            collate_fn (Callable):
-            stage (Optional[str], optional): Defaults to None.
-
-        Returns:
-            None:
-        """
-        self.subsets = CoverDataModule.Subsets(
-            *random_split(
-                self.dataset, self.subsets_lengths, generator=self.random_generator
-            )
-        )
-
-        self.collate_fn = CoverDatasetCollater(self.tokenizer, self.max_seq_length)
-
-    def prepare_data(self) -> None:
-        """Does nothing."""
-        super().prepare_data()
-
-    def train_dataloader(self) -> DataLoader:
-        """Get the train dataloader.
-
-        Returns:
-            DataLoader:
-        """
-        return DataLoader(
-            self.subsets.train,
-            self.batch_size,
-            shuffle=True,
-            pin_memory=True,
-            collate_fn=self.collate_fn,
-            num_workers=psutil.cpu_count(logical=False),
-        )
-
-    def val_dataloader(self) -> DataLoader:
-        """Get the validation dataloader.
-
-        Returns:
-            DataLoader:
-        """
-        return DataLoader(
-            self.subsets.val,
-            self.batch_size,
-            shuffle=False,
-            pin_memory=True,
-            collate_fn=self.collate_fn,
-            num_workers=psutil.cpu_count(logical=False),
-        )
+    return train_dataset, val_dataset

@@ -1,10 +1,12 @@
 """Generator module."""
 from collections import namedtuple
-from typing import Any, Dict, Tuple, Union
+from functools import partial
+from typing import Tuple, Type, Union
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.optim import Optimizer
 from transformers import BatchEncoding
 
 from comic_cover_generator.ml.model.base import (
@@ -35,13 +37,16 @@ class GeneratorParams(TypedDict):
 class Generator(nn.Module, Freezeable):
     """Generator model based on PGAN."""
 
+    GeneratorOptimizers = namedtuple(
+        "GeneratorOptimizers", "seq2vec_optim, latent_network_optim, features_optim"
+    )
+
     def __init__(
         self,
         latent_dim: int = 256,
         w_dim: int = 256,
         conv_channels: Tuple[int, ...] = (512, 256, 128, 64, 32),
         output_shape: Tuple[int, int] = (64, 64),
-        mapping_network_lr_coef: float = 1e-2,
         mix_style_prob: float = 0.1,
         transformer_model: str = "prajjwal1/bert-tiny",
     ) -> None:
@@ -52,7 +57,6 @@ class Generator(nn.Module, Freezeable):
             w_dim (int, optional): Defaults to 256.
             conv_channels (Tuple[int, ...], optional): Defaults to (512, 256, 128, 64, 32).
             output_shape (Tuple[int, int], optional): Defaults to (64, 64).
-            mapping_network_lr_coef (float, optional): Defaults to 1e-2.
             mix_style_prob (float, optional): Defaults to 0.1.
             transformer_model (str): the transfomer model used in this generator.
 
@@ -79,7 +83,6 @@ class Generator(nn.Module, Freezeable):
         self.w_dim = w_dim
         # output shape
         self.output_shape = output_shape
-        self.mapping_network_lr_coef = mapping_network_lr_coef
         self.mix_style_prob = mix_style_prob
 
         self.conv_channels = list(conv_channels)
@@ -93,7 +96,7 @@ class Generator(nn.Module, Freezeable):
             nn.Upsample(scale_factor=4, mode="nearest"),
         )
 
-        self.latent_mapper = LatentMapper(self.latent_dim, self.w_dim)
+        self.mapping_network = LatentMappingNetwork(self.latent_dim, self.w_dim)
 
         self.features = nn.ModuleList(
             [GeneratorHead(conv_channels[0], conv_channels[0], self.w_dim)]
@@ -109,7 +112,36 @@ class Generator(nn.Module, Freezeable):
                 ),
             )
 
-        self.rescale_rgb = nn.Tanh()
+        self.rescale_rgb = nn.Sigmoid()
+
+    def create_optimizers(
+        self,
+        opt_cls: Type[Optimizer],
+        lr: float = 1e-3,
+        mapping_network_lr_coef: float = 0.01,
+        **opt_params,
+    ) -> Optimizer:
+        """Create optimizers for generator.
+
+        Args:
+            opt_cls (Type[Optimizer]): The class for optimizer.
+            lr (float, optional): Defaults to 1e-3.
+            mapping_network_lr_coef (float, optional): Defaults to 0.01.
+
+        Returns:
+            Optimizer:
+        """
+        opt_init = partial(opt_cls, **opt_params)
+        return opt_init(
+            [
+                {"params": self.seq2vec.parameters(), "lr": lr},
+                {
+                    "params": self.mapping_network.parameters(),
+                    "lr": lr * mapping_network_lr_coef,
+                },
+                {"params": self.features.parameters(), "lr": lr},
+            ]
+        )
 
     def forward(
         self, z: torch.Tensor, title_seq: BatchEncoding, stochastic_noise: torch.Tensor
@@ -120,7 +152,6 @@ class Generator(nn.Module, Freezeable):
             z (torch.Tensor): Latent noise input.
             title_seq (torch.Tensor): Title sequence.
             stochastic_noise (torch.Tensor): The stochastic input noise.
-            return_w (bool, optional): Whether to return w or not.
 
         Returns:
             Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]: If return_w is False, only returns the rgb output, else returns rgb and w in the same order as mentioned as a tuple.
@@ -128,7 +159,7 @@ class Generator(nn.Module, Freezeable):
         if stochastic_noise.ndim == 3:
             stochastic_noise = stochastic_noise.unsqueeze(1)
         # enriching the latent vector
-        w = self.latent_mapper(z)
+        w = self.mapping_network(z)
         # embed the sequence to a vector
         x = self.seq2vec(title_seq)
         rgb = None
@@ -137,27 +168,26 @@ class Generator(nn.Module, Freezeable):
         rgb = self.rescale_rgb(rgb)
         return rgb
 
-    def _get_w(self, z):
+    def _get_w(self, z: torch.Tensor) -> torch.Tensor:
         if torch.rand(()).item() < self.mix_style_prob:
             n_gen_blocks = len(self.features)
             z1 = z
             z2 = torch.randn_like(z)
-            w1 = self.latent_mapper(z1)
-            w2 = self.latent_mapper(z2)
+            w1 = self.mapping_network(z1)
+            w2 = self.mapping_network(z2)
             cross_over_point = torch.randint(low=0, high=n_gen_blocks, size=()).item()
             w1 = w1.unsqueeze(0).expand(cross_over_point, -1, -1)
             w2 = w2.unsqueeze(0).expand(n_gen_blocks - cross_over_point, -1, -1)
             return torch.cat((w1, w2), dim=0)
         else:
-            return self.latent_mapper(z).expand(len(self.features), -1, -1)
+            return self.mapping_network(z).expand(len(self.features), -1, -1)
 
     def _train_step_forward(
         self,
         z: torch.Tensor,
         title_seq: BatchEncoding,
         stochastic_noise: torch.Tensor,
-        return_w: bool = False,
-    ):
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         if stochastic_noise.ndim == 3:
             stochastic_noise = stochastic_noise.unsqueeze(1)
         # get mapping network output, apply style mixing if needed
@@ -168,47 +198,10 @@ class Generator(nn.Module, Freezeable):
         for generator_block_index, f in enumerate(self.features):
             x, rgb = f(x, w[generator_block_index], stochastic_noise, rgb)
         rgb = self.rescale_rgb(rgb)
-        if return_w:
-            return rgb, w
-        else:
-            return rgb
-
-    def freeze(self):
-        """Freeze the generator model."""
-        for p in self.parameters():
-            p.requires_grad = False
-        return self
-
-    def unfreeze(self):
-        """Unfreeze the generator model."""
-        for p in nn.ModuleList([self.latent_mapper, self.features]).parameters():
-            p.requires_grad = True
-        self.seq2vec[0].unfreeze()
-        return self
-
-    def get_optimizer_parameters(self, lr: float) -> Tuple[Dict[str, Any]]:
-        """Get optimizer parameters for this layer.
-
-        Args:
-            lr (float):
-
-        Returns:
-            Tuple[Dict[str, Any]]:
-        """
-        return [
-            {
-                "params": list(self.latent_mapper.parameters())
-                + list(self.seq2vec.parameters()),
-                "lr": lr * self.mapping_network_lr_coef,
-            },
-            {
-                "params": list(self.features.parameters()),
-                "lr": lr,
-            },
-        ]
+        return rgb, w
 
     def to_uint8(self, x: torch.Tensor) -> torch.Tensor:
-        """Map the output of the generator model to uint8.
+        """Transform output of generator to uint8.
 
         Args:
             x (torch.Tensor):
@@ -216,11 +209,10 @@ class Generator(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        x = x / 2 + 1 / 2
-        return (x * 255.0).type(torch.uint8)
+        return (x * 256.0).clamp(0, 255).to(torch.uint8)
 
 
-class LatentMapper(nn.Module):
+class LatentMappingNetwork(nn.Module):
     """A latent mapping module to map a latent vector to w plane."""
 
     def __init__(self, latent_dim: int, w_dim: int) -> None:

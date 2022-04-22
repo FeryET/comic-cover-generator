@@ -10,7 +10,7 @@ torch.manual_seed(42)
 
 @pytest.fixture(scope="module")
 def disc():
-    return Critic(channels=[128, 128, 128], input_shape=(8, 8))
+    return Critic(channels=[8, 8, 8, 8, 8], input_shape=(64, 64))
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +30,7 @@ def test_critic_features_forward_pass(disc: Critic):
 
 @torch.no_grad()
 def test_critic_clf_forward_pass(disc: Critic):
-    disc.clf(torch.rand(1, disc.channels[-1], *disc.input_shape))
+    disc.clf(torch.rand(1, disc.channels[-1], 4, 4))
 
 
 @torch.no_grad()
@@ -45,7 +45,7 @@ def test_critic_output_shape(disc: Critic, disc_input):
 
 @pytest.mark.training
 def test_critic_overfitting(disc: Critic):
-    batch = torch.ones(5, 3, *disc.input_shape) * 0.5
+    batch = torch.ones(8, 3, *disc.input_shape) * 0.5
     opt = torch.optim.AdamW(params=disc.parameters(), lr=0.02, eps=1e-8, weight_decay=0)
     target = torch.ones(batch.size(0), 1, dtype=torch.float32)
     losses = []

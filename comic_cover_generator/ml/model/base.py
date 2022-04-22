@@ -147,12 +147,12 @@ class EqualConv2d(nn.Module):
         """
         return F.conv2d(
             input,
-            self.weight(),
-            self.bias,
-            self.stride,
-            self.padding,
-            self.dilation,
-            self.groups,
+            weight=self.weight(),
+            bias=self.bias,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+            groups=self.groups,
         )
 
 
@@ -225,7 +225,7 @@ class Blur(nn.Module):
     def __init__(self) -> None:
         """Intiialize the blurring layer."""
         super().__init__()
-        kernel = torch.tensor([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=torch.float32)[
+        kernel = torch.tensor([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=torch.float)[
             None, None, ...
         ]
         kernel = kernel / kernel.sum()
@@ -244,5 +244,5 @@ class Blur(nn.Module):
         b, c, h, w = x.size()
         x = x.view(-1, 1, h, w)
         x = self.pad(x)
-        x = F.conv2d(x, self.kernel.to(x.dtype))
+        x = F.conv2d(x, self.kernel)
         return x.view(b, c, h, w)

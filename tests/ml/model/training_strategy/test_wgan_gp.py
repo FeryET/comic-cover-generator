@@ -3,9 +3,9 @@ import torch
 from torch import nn
 
 from comic_cover_generator.ml.model.training_strategy.wgan_gp import (
-    critic_loss_fn,
-    generator_loss_fn,
-    gradient_penalty,
+    wgan_gp_critic_loss,
+    wgan_gp_generator_loss,
+    wgan_gp_gradient_penalty,
 )
 
 
@@ -28,11 +28,14 @@ def fake_imgs():
     "input, correct", [[1, 1], [[1, 1], 1], [[1, 2], 1.5], [list(range(10)), 4.5]]
 )
 def test_generator_loss_fn_pass(input, correct):
-    assert generator_loss_fn(torch.as_tensor(input, dtype=torch.float)) == -1 * correct
+    assert (
+        wgan_gp_generator_loss(torch.as_tensor(input, dtype=torch.float))
+        == -1 * correct
+    )
 
 
 def test_gradient_penalty_pass(real_imgs, fake_imgs, critic):
-    gradient_penalty(critic, real_imgs.data, fake_imgs.data)
+    wgan_gp_gradient_penalty(critic, real_imgs.data, fake_imgs.data)
 
 
 def test_critic_loss_pass(real_imgs, fake_imgs, critic):
@@ -40,6 +43,6 @@ def test_critic_loss_pass(real_imgs, fake_imgs, critic):
     fake_pred = critic(fake_imgs)
     opt = torch.optim.SGD(critic.parameters(), lr=0.1)
     opt.zero_grad()
-    gp = gradient_penalty(critic, real_imgs.data, fake_imgs.data)
-    critic_loss_fn(real_pred, fake_pred, gp, 0.1).backward()
+    gp = wgan_gp_gradient_penalty(critic, real_imgs.data, fake_imgs.data)
+    (wgan_gp_critic_loss(real_pred, fake_pred) + gp).backward()
     opt.step()

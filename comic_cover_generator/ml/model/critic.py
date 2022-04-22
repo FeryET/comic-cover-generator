@@ -1,12 +1,12 @@
 """Critic Module."""
 import math
-from typing import Tuple
+from typing import Tuple, Type
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.optim import Optimizer
 
-from comic_cover_generator.ml.constants import Constants
 from comic_cover_generator.ml.model.base import (
     Blur,
     EqualConv2d,
@@ -57,7 +57,8 @@ class CriticResidualBlock(nn.Module):
         """
         residual = self.residual(x)
         x = self.conv(x)
-        return (x + residual) * self.residual_scaler
+        x = (x + residual) * self.residual_scaler
+        return x
 
 
 class CriticParams(TypedDict):
@@ -70,17 +71,16 @@ class CriticParams(TypedDict):
 class MinibatchStdMean(nn.Module):
     """Mini batch std mean layer from ProGAN paper."""
 
-    def __init__(self, eps: float = None) -> None:
+    def __init__(self, groups: int = 4, num_channels: int = 1) -> None:
         """Initializes the minibatch std mean layer.
 
         Args:
-            eps (float, optional): Defaults to None.
+            groups (int, optional): Number of groups in the channels. Defaults to 4.
+            num_channels (int, optional): Number of channels attached to the output. Defaults to 1.
         """
         super().__init__()
-        if eps is None:
-            self.eps = Constants.eps
-        else:
-            self.eps = eps
+        self.groups = groups
+        self.num_channels = num_channels
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Applies a minibatch std mean for diversity checking in discriminator.
@@ -91,9 +91,19 @@ class MinibatchStdMean(nn.Module):
         Returns:
             torch.Tensor:
         """
-        f_std = torch.sqrt(x.var(dim=0, keepdim=True) + self.eps)
-        f_std = f_std.mean().expand(x.size(0), 1, x.size(2), x.size(3))
-        return torch.cat((x, f_std), dim=1)
+        b, c, h, w = x.size()
+        G = min(b, self.groups) if self.groups is not None else b
+        f = self.num_channels
+        c = c // f
+        y = x.reshape(G, -1, f, c, h, w)
+        y = y - y.mean(dim=0)
+        y = y.square().mean(dim=0)
+        y = (y + 1e-8).sqrt()
+        y = y.mean(dim=(2, 3, 4))
+        y = y.reshape(-1, f, 1, 1)
+        y = y.repeat(G, 1, h, w)
+        x = torch.cat((x, y), dim=1)
+        return x
 
 
 class Critic(nn.Module, Freezeable):
@@ -103,32 +113,44 @@ class Critic(nn.Module, Freezeable):
         self,
         channels: Tuple[int, ...] = (64, 128, 256, 512),
         input_shape: Tuple[int, int] = (64, 64),
+        mini_batch_std_channels: int = 1,
+        mini_batch_std_groups: int = 4,
     ) -> None:
         """Initialize a critic module.
 
         Args:
             channels (Tuple[int, ...], optional): Inputs to the channels used in sequential blocks. Each block will halve the resolution of feature maps after applying the forward method. Defaults to (3, 512, 512, 512, 512).
-            input_shape (Tuple[int, int]): Defaults to (64, 64).
+            input_shape (Tuple[int, int], optional): Defaults to (64, 64).
+            mini_batch_std_channels (int, optional): Defaults to 1.
+            mini_batch_std_groups (int, optional): Defaults to 4.
         """
         super().__init__()
 
         self.input_shape = input_shape
         self.channels = channels
 
-        self.from_rgb = nn.Conv2d(3, self.channels[0], 1, 1, 0)
+        self.from_rgb = EqualConv2d(3, self.channels[0], 1, 1, 0)
 
         self.features = nn.Sequential()
 
-        for idx, (in_ch, out_ch) in enumerate(zip(channels, channels[1:]), start=1):
-            if idx == len(channels) - 1:
-                self.features.append(MinibatchStdMean())
-                in_ch = in_ch + 1
+        for in_ch, out_ch in zip(channels, channels[1:]):
             self.features.append(CriticResidualBlock(in_ch, out_ch))
 
         self.clf = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Dropout(),
+            MinibatchStdMean(
+                num_channels=mini_batch_std_channels, groups=mini_batch_std_groups
+            ),
+            EqualConv2d(
+                self.channels[-1] + mini_batch_std_channels,
+                self.channels[-1],
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
+            nn.LeakyReLU(0.2),
+            nn.Flatten(start_dim=1),
+            EqualLinear(self.channels[-1] * 4 * 4, self.channels[-1]),
+            nn.LeakyReLU(0.2),
             EqualLinear(self.channels[-1], 1),
         )
 
@@ -141,19 +163,23 @@ class Critic(nn.Module, Freezeable):
         Returns:
             torch.Tensor:
         """
-        return self.clf(self.features(self.from_rgb(x)))
+        x = self.from_rgb(x)
+        x = self.features(x)
+        x = self.clf(x)
+        return x
 
-    def freeze(self):
-        """Freeze the critic model."""
-        for p in self.parameters():
-            p.requires_grad = False
-        return self
+    def create_optimizers(
+        self, opt_cls: Type[Optimizer], **optimizer_params
+    ) -> Optimizer:
+        """Create optimizers for critic.
 
-    def unfreeze(self):
-        """Unfreeze the critic model."""
-        for p in self.parameters():
-            p.requires_grad = True
-        return self
+        Args:
+            opt_cls (Type[Optimizer]):
+
+        Returns:
+            Optimizer:
+        """
+        return opt_cls(self.parameters(), **optimizer_params)
 
 
 class BlurDownsample(nn.Module):

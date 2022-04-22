@@ -1,37 +1,33 @@
 defaults:
-  - datamodule: cover_datamodule
+  - dataset: cover-dataset
   - model: gan
   - _self_
 
 transformer_model: "prajjwal1/bert-tiny"
 
-logger:
-  tracking_uri: "file://${hydra:runtime.cwd}/experiment_outputs/mlruns/"
+dataset_split:
+  train_portion: 0.95
+  val_portion: 0.05
+  seed: 42
 
-trainer:
-  default_root_dir: "${hydra:runtime.cwd}/experiment_outputs"
-  max_steps: 10000
-  gpus: 0
-  amp_backend: "apex"
-  auto_lr_find: False
-  auto_scale_batch_size: ""
-  gradient_clip_val: 0.5
-  enable_progress_bar: True
-  callbacks:
-    - _target_: pytorch_lightning.callbacks.ModelCheckpoint
-      filename: "{epoch}-{val_fid:.2f}"
-      monitor: "val_fid"
-      mode: "min"
-      save_top_k: 1
-      save_weights_only: True
-
-# strategy
-training_strategy_params:
-  cls: "${get_cls: comic_cover_generator.ml.model.training_strategy.nsgan.NSGANTrainingStrategy}"
-  kwargs:
-    r1_penalty_coef: 10
-    pl_penalty_coef: 2
-    r1_regularization_interval: 16
-    pl_regularization_interval: 8
-    pl_start_from_iteration: 10000
-    path_length_beta: 0.99
+training:
+  mixed_precision: True
+  checkpoint_path: ${hydra:runtime:.cwd}/experiment_outputs/checkpoints/model.ckpt
+  batch_size: 32
+  grad_clip_val: 0.5
+  max_epochs: 100
+  logger:
+    experiment_name: "comic_cover_generator"
+    tracking_uri: "file://${hydra:runtime.cwd}/experiment_outputs/mlruns/"
+  collater:
+    transformer_model: ${transformer_model}
+    max_length: 20
+  monitor: train-fid
+  strategy:
+    name: nsgan
+    params:
+      r1_interval: 16
+      r1_coef: 10
+      pl_beta: 0.99
+      pl_interval: 4
+      pl_coef: 2

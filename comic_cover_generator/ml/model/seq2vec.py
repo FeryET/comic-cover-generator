@@ -4,7 +4,7 @@ from torch import Tensor, nn
 from transformers import AutoConfig, AutoModelForSequenceClassification, BatchEncoding
 
 from comic_cover_generator.ml.constants import Constants
-from comic_cover_generator.ml.model.base import EqualLinear, Freezeable
+from comic_cover_generator.ml.model.base import EqualLinear
 from comic_cover_generator.typing import TypedDict
 
 
@@ -14,7 +14,7 @@ class Seq2VecParams(TypedDict):
     transformer_model: str
 
 
-class Seq2Vec(nn.Module, Freezeable):
+class Seq2Vec(nn.Module):
     """A layer which maps a sequence of varying length to vectors."""
 
     def __init__(self, transformer_model: str, output_dim: int) -> None:
@@ -40,10 +40,12 @@ class Seq2Vec(nn.Module, Freezeable):
             EqualLinear(self.config.hidden_size, output_dim, bias=True),
             nn.LeakyReLU(0.2),
         )
-        # freeze and unfreeze the layers to make sure the trainable parameters
-        # are shown correct in the lightning trainer
-        self.freeze()
-        self.unfreeze()
+
+        for p in self.transformer.parameters():
+            p.requires_grad = False
+
+        for p in self.transformer.classifier.parameters():
+            p.requires_grad = True
 
     def forward(self, seq: BatchEncoding) -> Tensor:
         """Map sequence to vector.
@@ -56,13 +58,3 @@ class Seq2Vec(nn.Module, Freezeable):
         """
         x = self.transformer(**seq).logits
         return x
-
-    def freeze(self):
-        """Freeze generator layers."""
-        for p in self.parameters():
-            p.requires_grad = False
-
-    def unfreeze(self):
-        """Unfreeze generator layers."""
-        for p in self.transformer.classifier.parameters():
-            p.requires_grad = True
